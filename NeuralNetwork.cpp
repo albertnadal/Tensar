@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <vector>
 #include <cmath>
+#include <mutex>
 
 #ifdef __APPLE__
 #include <GLUT/glut.h>
@@ -51,11 +52,18 @@ struct Point2d {
 
 namespace NeuralNetwork {
 
+class InputCase;
+
+enum LayerType { convolutional, fc, relu, pool, dropout_layer };
 vector<Point2d> points;
 int timebase_timestamp = 0;
 int frame_counter = 0;
 char current_fps_buffer[20];
-enum LayerType { convolutional, fc, relu, pool, dropout_layer };
+InputCase *current_input_case;
+unsigned char *producer_frame_buffer = NULL;
+unsigned char *consumer_frame_buffer = NULL;
+mutex consumer_mutex;
+bool is_consuming_frame_buffer = false;
 
 struct point_t
 {
@@ -114,7 +122,11 @@ class TensorFloat : public Tensor {
 
 public:
 
-float *values;
+float *values = NULL;
+
+TensorFloat() {
+
+}
 
 TensorFloat(int width, int height, int depth) {
         values = new float[width * height * depth];
@@ -142,7 +154,9 @@ float& get( int x, int y, int z )
 }
 
 ~TensorFloat() {
-        delete[] values;
+        if(values != NULL) {
+                delete[] values;
+        }
 }
 
 };
@@ -384,6 +398,26 @@ Network() {
 
 };
 
+class InputCase {
+
+public:
+
+TensorFloat *data;
+TensorFloat *out;
+
+InputCase(size_t data_size, size_t out_size) {
+        data = new TensorFloat(data_size.width, data_size.height, data_size.depth);
+        out = new TensorFloat(out_size.width, out_size.height, out_size.depth);
+}
+
+~InputCase() {
+        delete data;
+        delete out;
+}
+
+};
+
+
 }
 
 /***********************************/
@@ -434,13 +468,6 @@ struct point_t
    }
  */
 
-
-struct case_t
-{
-        TensorFloat data;
-        TensorFloat out;
-};
-
 uint32_t byteswap_uint32(uint32_t a)
 {
         return ((((a >> 24) & 0xff) << 0) |
@@ -473,35 +500,15 @@ void drawString(int x, int y, char* msg) {
 
 GLuint LoadTexture( const char * filename )
 {
-        GLuint texture;
-        int width, height;
-        unsigned char * data;
-        unsigned char * target;
-
-        FILE * file;
-        file = fopen(filename, "rb");
-
-        if(file == NULL) return 0;
-        width = 100;
-        height = 100;
-        target = (unsigned char *)malloc( (width * height * 3) + BMP_HEADER_SIZE);
-        data = (unsigned char *)malloc(width * height * 3);
-        fread( target, (width * height * 3) + BMP_HEADER_SIZE, 1, file );
-        fclose( file );
-
-        for(int i = 0; i < width * height; ++i)
-        {
-                int index = (i*3);
-                unsigned char B,R,G;
-                B = target[index+BMP_HEADER_SIZE];
-                G = target[index+1+BMP_HEADER_SIZE];
-                R = target[index+2+BMP_HEADER_SIZE];
-
-                data[index] = R;
-                data[index+1] = G;
-                data[index+2] = B;
+        if(consumer_frame_buffer == NULL) {
+                return NULL;
         }
 
+        GLuint texture;
+        int width, height;
+
+        width = 28;
+        height = 28;
 
         glGenTextures( 1, &texture );
         glBindTexture( GL_TEXTURE_2D, texture );
@@ -510,8 +517,7 @@ GLuint LoadTexture( const char * filename )
         glTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER,GL_LINEAR );
         glTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S,GL_REPEAT );
         glTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T,GL_REPEAT );
-        gluBuild2DMipmaps( GL_TEXTURE_2D, GL_RGB, width, height, GL_RGB, GL_UNSIGNED_BYTE, data );
-        free(data);
+        gluBuild2DMipmaps( GL_TEXTURE_2D, GL_RGB, width, height, GL_RGB, GL_UNSIGNED_BYTE, consumer_frame_buffer);
 
         return texture;
 }
@@ -537,20 +543,28 @@ void display(void)
         }
 
         glColor3f(1,1,1);
-        glEnable(GL_TEXTURE_2D);
+
+        consumer_mutex.lock();
+        is_consuming_frame_buffer = true;
         GLuint texture = LoadTexture("image.bmp");
-        glBindTexture(GL_TEXTURE_2D, texture);
-        glBegin(GL_QUADS);
-          glTexCoord2f(0, 0);
-          glVertex2f(0, HEIGHT - 0);
-          glTexCoord2f(0, 1);
-          glVertex2f(0, HEIGHT - 100);
-          glTexCoord2f(1, 1);
-          glVertex2f(100, HEIGHT - 100);
-          glTexCoord2f(1, 0);
-          glVertex2f(100, HEIGHT - 0);
-        glEnd();
-        glDisable(GL_TEXTURE_2D);
+        is_consuming_frame_buffer = false;
+        consumer_mutex.unlock();
+
+        if(texture != NULL) {
+                glEnable(GL_TEXTURE_2D);
+                glBindTexture(GL_TEXTURE_2D, texture);
+                glBegin(GL_QUADS);
+                glTexCoord2f(0, 0);
+                glVertex2f(0, HEIGHT - 0);
+                glTexCoord2f(0, 1);
+                glVertex2f(0, HEIGHT - 100);
+                glTexCoord2f(1, 1);
+                glVertex2f(100, HEIGHT - 100);
+                glTexCoord2f(1, 0);
+                glVertex2f(100, HEIGHT - 0);
+                glEnd();
+                glDisable(GL_TEXTURE_2D);
+        }
 
         drawString(WIDTH - 45, 15, current_fps_buffer);
 
@@ -558,9 +572,12 @@ void display(void)
         glutSwapBuffers();
 }
 
-vector<case_t> read_test_cases()
+vector<InputCase*> read_test_cases()
 {
-        vector<case_t> cases;
+        vector<InputCase*> cases;
+
+        producer_frame_buffer = (unsigned char *)malloc((28 * 28 * 3));
+        consumer_frame_buffer = (unsigned char *)malloc((28 * 28 * 3));
 
         uint8_t* train_image = read_file( "train-images.idx3-ubyte" );
         uint8_t* train_labels = read_file( "train-labels.idx1-ubyte" );
@@ -568,29 +585,38 @@ vector<case_t> read_test_cases()
 
         for(int i = 0; i < case_count; i++)
         {
-                case_t c
-                {
-                        TensorFloat( 28, 28, 1 ),
-                        TensorFloat( 10, 1, 1 )
-                };
+
+                NeuralNetwork::size_t input_size{28, 28, 1};
+                NeuralNetwork::size_t out_size{10, 1, 1};
+
+                cout << "InputCase instance: " << i << "\n";
+                InputCase *c = new InputCase(input_size, out_size);
 
                 uint8_t* img = train_image + 16 + i * (28 * 28);
                 uint8_t* label = train_labels + 8 + i;
 
                 for ( int x = 0; x < 28; x++ )
                         for ( int y = 0; y < 28; y++ ) {
-                                c.data( x, y, 0 ) = img[x + y * 28] / 255.f;
+                                (*c->data)(x, y, 0) = img[x + y * 28] / 255.f;
+                                producer_frame_buffer[x * 3 + y * 28 * 3] = 0;
+                                producer_frame_buffer[x * 3 + y * 28 * 3 + 1] = img[x + y * 28]; // green byte
+                                producer_frame_buffer[x * 3 + y * 28 * 3 + 2] = 0;
                         }
 
+                if(!is_consuming_frame_buffer) {
+                        consumer_mutex.lock();
+                        cout << "SWAPING BUFFERS\n";
+                        unsigned char *tmp = producer_frame_buffer;
+                        producer_frame_buffer = consumer_frame_buffer;
+                        consumer_frame_buffer = tmp;
+                        consumer_mutex.unlock();
+                }
+
                 for ( int b = 0; b < 10; b++ ) {
-                        c.out( b, 0, 0 ) = *label == b ? 1.0f : 0.0f;
+                        (*c->out)(b, 0, 0) = *label == b ? 1.0f : 0.0f;
                 }
 
                 cases.push_back(c);
-                points.push_back(Point2d(i % WIDTH,20));
-
-                //cout << ".";
-                //display();
         }
 
         delete[] train_image;
@@ -614,13 +640,21 @@ void reshape(int w, int h)
 }
 
 static void* tensarThreadFunc(void* v){
-        vector<case_t> cases = read_test_cases();
+        vector<InputCase*> cases = read_test_cases();
         vector<Layer*> layers;
 
         // stride, filter_width(extend_filter), num_filters, filter_size
-        ConvolutionalLayer *cnn_layer = new ConvolutionalLayer(1, 5, 8, cases[0].data.size);		// 28 * 28 * 1 -> 24 * 24 * 8
+/*
+        ConvolutionalLayer *cnn_layer = new ConvolutionalLayer(1, 5, 8, cases[0].data.size);    // 28 * 28 * 1 -> 24 * 24 * 8
 
         layers.push_back((Layer*)cnn_layer);
+
+        for(int i=0; i<cases.size(); i++)
+        {
+                current_input_case = &cases[i];
+                //float xerr = train(layers, t.data, t.out);
+        }
+ */
 }
 
 int main(int argc, char *argv[]) {
