@@ -53,8 +53,10 @@ struct Point2d {
 namespace NeuralNetwork {
 
 class InputCase;
+class Layer;
 
 enum LayerType { convolutional, fc, relu, pool, dropout_layer };
+
 vector<Point2d> points;
 int timebase_timestamp = 0;
 int frame_counter = 0;
@@ -63,6 +65,8 @@ unsigned char *producer_frame_buffer = NULL;
 unsigned char *consumer_frame_buffer = NULL;
 mutex consumer_mutex;
 bool is_consuming_frame_buffer = false;
+
+vector<Layer*> layers;
 
 struct point_t
 {
@@ -685,6 +689,18 @@ void display(void)
 
         glColor3f(1,1,1);
 
+        for(Layer* layer: layers){
+          LayerGridFrameBuffer *grid = layer->gridRenderFrameBuffer;
+
+          for(int x=0; x<grid->width; x++)
+            for(int y=0; y<grid->height; y++) {
+              cout << "Rendering buffer\n";
+              TensorRenderFrameBuffer* tensorFrameBuffer = grid->get(x, y);
+            }
+
+        }
+
+
         consumer_mutex.lock();
         is_consuming_frame_buffer = true;
         GLuint texture = LoadTexture();
@@ -818,7 +834,6 @@ float train(vector<Layer*> &layers, InputCase *input_case)//TensorFloat *data, T
 
 static void* tensarThreadFunc(void* v) {
         vector<InputCase*> cases = read_test_cases();
-        vector<Layer*> layers;
 
         // stride, filter_width(extend_filter), num_filters, filter_size
         ConvolutionalLayer *cnn_layer = new ConvolutionalLayer(1, 5, 8, cases[0]->data->size);    // 28 * 28 * 1 -> 24 * 24 * 8
@@ -830,7 +845,6 @@ static void* tensarThreadFunc(void* v) {
                 InputCase *input_case = cases[i];
                 float xerr = train(layers, input_case);
         }
-
 }
 
 int main(int argc, char *argv[]) {
