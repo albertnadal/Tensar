@@ -107,7 +107,7 @@ static void update_gradient( gradient_t& grad )
 }
 
 /* BEGIN - VISUALS DATA STRUCTURES */
-class CellFrameBuffer {
+class TensorRenderFrameBuffer {
 
 public:
 
@@ -120,14 +120,34 @@ unsigned char *consumer_frame_buffer = NULL;
 mutex consumer_mutex;
 bool is_consuming_frame_buffer = false;
 
-CellFrameBuffer(int _width, int _height) {
+TensorRenderFrameBuffer(int _width, int _height) {
         producer_frame_buffer = (unsigned char *)calloc((_width * _height * 3), sizeof(unsigned char));
         consumer_frame_buffer = (unsigned char *)calloc((_width * _height * 3), sizeof(unsigned char));
         width = _width;
         height = _height;
 }
 
-~CellFrameBuffer() {
+void set(int x, int y, unsigned char value) const
+{
+        assert(x >= 0 && y >= 0);
+        assert(x < width && y < height);
+        producer_frame_buffer[(y * width * 3) + x * 3] = 0;
+        producer_frame_buffer[(y * width * 3) + x * 3 + 1] = value; // green
+        producer_frame_buffer[(y * width * 3) + x * 3 + 2] = 0;
+}
+
+void swapBuffers()
+{
+        if(!is_consuming_frame_buffer) {
+                consumer_mutex.lock();
+                unsigned char *tmp = producer_frame_buffer;
+                producer_frame_buffer = consumer_frame_buffer;
+                consumer_frame_buffer = tmp;
+                consumer_mutex.unlock();
+        }
+}
+
+~TensorRenderFrameBuffer() {
         if(producer_frame_buffer != NULL) {
                 delete[] producer_frame_buffer;
         }
@@ -147,7 +167,7 @@ public:
 int width;
 int height;
 char **header_titles = NULL;
-CellFrameBuffer **cells = NULL;
+TensorRenderFrameBuffer **cells = NULL;
 
 LayerGridFrameBuffer() {
 
@@ -155,7 +175,7 @@ LayerGridFrameBuffer() {
 
 LayerGridFrameBuffer(int _width, int _height) {
         // Creates an array of pointers
-        cells = new CellFrameBuffer*[_width * _height];
+        cells = new TensorRenderFrameBuffer*[_width * _height];
 
         // Initialize the array with null pointers
         for(int i=0; i<_width * _height; i++)
@@ -164,19 +184,19 @@ LayerGridFrameBuffer(int _width, int _height) {
         height = _height;
 }
 
-CellFrameBuffer* operator()(int x, int y) const
+TensorRenderFrameBuffer* operator()(int x, int y) const
 {
         return this->get(x, y);
 }
 
-CellFrameBuffer* get(int x, int y) const
+TensorRenderFrameBuffer* get(int x, int y) const
 {
         assert(x >= 0 && y >= 0);
         assert(x < width && y < height);
         return cells[(y * width) + x];
 }
 
-void set(int x, int y, CellFrameBuffer* cell) const
+void set(int x, int y, TensorRenderFrameBuffer* cell) const
 {
         assert(x >= 0 && y >= 0);
         assert(x < width && y < height);
@@ -292,7 +312,7 @@ public:
 
 TensorFloat *output;
 LayerType type;
-LayerGridFrameBuffer *gridFrameBuffer;
+LayerGridFrameBuffer *gridRenderFrameBuffer;
 
 virtual void activate(TensorFloat*)=0;
 virtual void activate()=0;
@@ -319,21 +339,21 @@ ConvolutionalLayer(int stride, int extend_filter, int number_filters, size_t in_
         // ...
         // {cellObj, cellObj, cellObj}
 
-        gridFrameBuffer = new LayerGridFrameBuffer(3, number_filters); // 3 = {input, filter, output}
+        gridRenderFrameBuffer = new LayerGridFrameBuffer(3, number_filters); // 3 = {input, filter, output}
 
         // Initialize first column of the grid with Inputs buffers
         for(int i=0; i<number_filters; i++) {
-                gridFrameBuffer->set(0, i, new CellFrameBuffer(in_size.width, in_size.height));
+                gridRenderFrameBuffer->set(0, i, new TensorRenderFrameBuffer(in_size.width, in_size.height));
         }
 
         // Initialize second column of the grid with Filters buffers
         for(int i=0; i<number_filters; i++) {
-                gridFrameBuffer->set(0, i, new CellFrameBuffer(extend_filter, extend_filter));
+                gridRenderFrameBuffer->set(1, i, new TensorRenderFrameBuffer(extend_filter, extend_filter));
         }
 
         // Initialize third column of the grid with Output buffers
         for(int i=0; i<number_filters; i++) {
-                gridFrameBuffer->set(0, i, new CellFrameBuffer((in_size.width - extend_filter) / stride + 1, (in_size.height - extend_filter) / stride + 1));
+                gridRenderFrameBuffer->set(2, i, new TensorRenderFrameBuffer((in_size.width - extend_filter) / stride + 1, (in_size.height - extend_filter) / stride + 1));
         }
 
         input_gradients = new TensorFloat(in_size.width, in_size.height, in_size.depth);
@@ -344,9 +364,10 @@ ConvolutionalLayer(int stride, int extend_filter, int number_filters, size_t in_
         assert( (float( in_size.width - extend_filter ) / stride + 1) == ((in_size.width - extend_filter) / stride + 1) );
         assert( (float( in_size.height - extend_filter ) / stride + 1) == ((in_size.height - extend_filter) / stride + 1) );
 
-        CellFrameBuffer* filterFrameBuffer;
+        TensorRenderFrameBuffer* filterFrameBuffer;
 
         for(int a = 0; a < number_filters; a++) {
+                filterFrameBuffer = gridRenderFrameBuffer->get(1, a);
                 TensorFloat t(extend_filter, extend_filter, in_size.depth);
                 int maxval = extend_filter * extend_filter * in_size.depth;
 
@@ -356,13 +377,15 @@ ConvolutionalLayer(int stride, int extend_filter, int number_filters, size_t in_
                         {
                                 for(int z = 0; z < in_size.depth; z++)
                                 {
-                                        t(x, y, z) = 1.0f / maxval * rand() / float( RAND_MAX );
+                                        float value = 1.0f / maxval * rand() / float( RAND_MAX );
+                                        t(x, y, z) = value;
+                                        filterFrameBuffer->set(x, y, (unsigned int)(value * 255));
                                 }
                         }
                 }
 
                 filters.push_back(t);
-                //filterFrameBuffer = gridFrameBuffer(0, i);
+                filterFrameBuffer->swapBuffers();
         }
 
         for(int i = 0; i < number_filters; i++) {
@@ -500,7 +523,7 @@ void calc_grads(TensorFloat& grad_next_layer) {
 }
 
 ~ConvolutionalLayer() {
-        delete gridFrameBuffer;
+        delete gridRenderFrameBuffer;
 }
 
 };
