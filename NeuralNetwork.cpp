@@ -17,8 +17,8 @@
 #include <GL/glut.h>
 #endif
 
-#define WIDTH 800
-#define HEIGHT 600
+#define WIDTH 1024
+#define HEIGHT 700
 
 #define LEARNING_RATE 0.01
 #define MOMENTUM 0.6
@@ -435,6 +435,26 @@ range_t map_to_output(int x, int y) {
 
 void activate(TensorFloat *in) {
         this->input = in;
+
+        // Update render frame buffer values
+        for(int filter = 0; filter < filters.size(); filter++)
+        {
+                TensorRenderFrameBuffer* inputFrameBuffer = gridRenderFrameBuffer->get(0, filter);
+                for(int x = 0; x < in->size.width; x++)
+                {
+                        for(int y = 0; y < in->size.height; y++)
+                        {
+                                for(int z = 0; z < in->size.depth; z++)
+                                {
+                                        float value = in->get(x, y, z);
+                                        inputFrameBuffer->set(x, y, (unsigned int)(value * 255));
+                                }
+                        }
+                }
+                inputFrameBuffer->swapBuffers();
+        }
+
+        // Activate
         activate();
 }
 
@@ -442,6 +462,7 @@ void activate() {
 
         for(int filter = 0; filter < filters.size(); filter++)
         {
+                TensorRenderFrameBuffer* outputFrameBuffer = gridRenderFrameBuffer->get(2, filter);
                 TensorFloat& filter_data = filters[filter];
                 for(int x = 0; x < output->size.width; x++)
                 {
@@ -462,8 +483,10 @@ void activate() {
                                         }
                                 }
                                 (*output)(x, y, filter) = sum;
+                                outputFrameBuffer->set(x, y, (unsigned int)(sum * 255));
                         }
                 }
+                outputFrameBuffer->swapBuffers();
         }
 
 }
@@ -643,6 +666,31 @@ void drawString(int x, int y, char* msg) {
         }
 }
 
+GLuint LoadTextureWithTensorRenderFrameBuffer(TensorRenderFrameBuffer *tensorFrameBuffer)
+{
+        tensorFrameBuffer->consumer_mutex.lock();
+        tensorFrameBuffer->is_consuming_frame_buffer = true;
+
+        if(tensorFrameBuffer->consumer_frame_buffer == NULL) {
+                return NULL;
+        }
+
+        GLuint texture;
+        glGenTextures( 1, &texture );
+        glBindTexture( GL_TEXTURE_2D, texture );
+        glTexEnvf( GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE,GL_MODULATE );
+        glTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER,GL_LINEAR_MIPMAP_NEAREST );
+        glTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER,GL_LINEAR );
+        glTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S,GL_REPEAT );
+        glTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T,GL_REPEAT );
+        gluBuild2DMipmaps( GL_TEXTURE_2D, GL_RGB, tensorFrameBuffer->width, tensorFrameBuffer->height, GL_RGB, GL_UNSIGNED_BYTE, tensorFrameBuffer->consumer_frame_buffer);
+
+        tensorFrameBuffer->is_consuming_frame_buffer = false;
+        tensorFrameBuffer->consumer_mutex.unlock();
+
+        return texture;
+}
+
 GLuint LoadTexture()
 {
         if(consumer_frame_buffer == NULL) {
@@ -689,18 +737,6 @@ void display(void)
 
         glColor3f(1,1,1);
 
-        for(Layer* layer: layers){
-          LayerGridFrameBuffer *grid = layer->gridRenderFrameBuffer;
-
-          for(int x=0; x<grid->width; x++)
-            for(int y=0; y<grid->height; y++) {
-              cout << "Rendering buffer\n";
-              TensorRenderFrameBuffer* tensorFrameBuffer = grid->get(x, y);
-            }
-
-        }
-
-
         consumer_mutex.lock();
         is_consuming_frame_buffer = true;
         GLuint texture = LoadTexture();
@@ -723,6 +759,44 @@ void display(void)
                 glDisable(GL_TEXTURE_2D);
         }
 
+
+        int x_offset = 100;
+        int y_offset = 0;
+        for(Layer* layer: layers) {
+          LayerGridFrameBuffer *grid = layer->gridRenderFrameBuffer;
+
+          for(int x=0; x<grid->width; x++) {
+
+            x_offset += 10;
+            y_offset = 0;
+            for(int y=0; y<grid->height; y++) {
+
+              y_offset += 10;
+              TensorRenderFrameBuffer* tensorFrameBuffer = grid->get(x, y);
+              GLuint texture = LoadTextureWithTensorRenderFrameBuffer(tensorFrameBuffer);
+
+              if(texture != NULL) {
+                      glEnable(GL_TEXTURE_2D);
+                      glBindTexture(GL_TEXTURE_2D, texture);
+                      glBegin(GL_QUADS);
+                      glTexCoord2f(0, 0);
+                      glVertex2f(x_offset, HEIGHT - y_offset);
+                      glTexCoord2f(0, 1);
+                      glVertex2f(x_offset, HEIGHT - y_offset - 40);
+                      glTexCoord2f(1, 1);
+                      glVertex2f(x_offset + 40, HEIGHT - y_offset - 40);
+                      glTexCoord2f(1, 0);
+                      glVertex2f(x_offset + 40, HEIGHT - y_offset);
+                      glEnd();
+                      glDisable(GL_TEXTURE_2D);
+              }
+
+              y_offset += 40;
+            }
+            x_offset += 40;
+          }
+        }
+
         drawString(WIDTH - 45, 15, current_fps_buffer);
 
         glFlush();
@@ -742,7 +816,6 @@ vector<InputCase*> read_test_cases()
 
         for(int i = 0; i < case_count; i++)
         {
-
                 NeuralNetwork::size_t input_size{28, 28, 1};
                 NeuralNetwork::size_t out_size{10, 1, 1};
 
@@ -788,7 +861,6 @@ void idle(void)
 void reshape(int w, int h)
 {
         glViewport(0, 0, WIDTH, HEIGHT);
-
         glMatrixMode(GL_PROJECTION);
         glLoadIdentity();
         gluOrtho2D(0.0, (GLdouble) w, 0.0, (GLdouble) h);
@@ -805,9 +877,11 @@ float train(vector<Layer*> &layers, InputCase *input_case)//TensorFloat *data, T
         }
 
         return 0.0f;
-/*
-   tensor_t<float> grads = layers.back()->out - expected;
 
+        TensorFloat* gradients = layers.back()->output - input_case->output; // difference between the neural network output and expected output
+  //tensor_t<float> grads = layers.back()->out - expected;
+
+/*
    for ( int i = layers.size() - 1; i >= 0; i-- )
    {
     if ( i == layers.size() - 1 )
@@ -843,6 +917,7 @@ static void* tensarThreadFunc(void* v) {
         for(int i=0; i<cases.size(); i++)
         {
                 InputCase *input_case = cases[i];
+                cout << "Train case " << i << "\n";
                 float xerr = train(layers, input_case);
         }
 }
