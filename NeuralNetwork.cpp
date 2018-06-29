@@ -253,12 +253,22 @@ TensorFloat(const TensorFloat& t) {
         this->size = t.size;
 }
 
-float& operator()( int x, int y, int z ) const
+static TensorFloat* diff(TensorFloat *tensor_a, TensorFloat *tensor_b) {
+
+  TensorFloat* clone = new TensorFloat(*tensor_a);
+  for(int i = 0; i < tensor_b->size.width * tensor_b->size.height * tensor_b->size.depth; i++) {
+    clone->values[i] -= tensor_b->values[i];
+  }
+  return clone;
+
+}
+
+float& operator()(int x, int y, int z) const
 {
         return this->get( x, y, z );
 }
 
-float& get( int x, int y, int z ) const
+float& get(int x, int y, int z) const
 {
         assert(x >= 0 && y >= 0 && z >= 0);
         assert(x < size.width && y < size.height && z < size.depth);
@@ -571,16 +581,16 @@ class InputCase {
 public:
 
 TensorFloat *data;
-TensorFloat *out;
+TensorFloat *output;
 
 InputCase(size_t data_size, size_t out_size) {
         data = new TensorFloat(data_size.width, data_size.height, data_size.depth);
-        out = new TensorFloat(out_size.width, out_size.height, out_size.depth);
+        output = new TensorFloat(out_size.width, out_size.height, out_size.depth);
 }
 
 ~InputCase() {
         delete data;
-        delete out;
+        delete output;
 }
 
 };
@@ -817,9 +827,9 @@ vector<InputCase*> read_test_cases()
         for(int i = 0; i < case_count; i++)
         {
                 NeuralNetwork::size_t input_size{28, 28, 1};
-                NeuralNetwork::size_t out_size{10, 1, 1};
+                NeuralNetwork::size_t output_size{10, 1, 1};
 
-                InputCase *c = new InputCase(input_size, out_size);
+                InputCase *c = new InputCase(input_size, output_size);
 
                 uint8_t* img = train_image + 16 + i * (28 * 28);
                 uint8_t* label = train_labels + 8 + i;
@@ -841,7 +851,7 @@ vector<InputCase*> read_test_cases()
                 }
 
                 for ( int b = 0; b < 10; b++ ) {
-                        (*c->out)(b, 0, 0) = *label == b ? 1.0f : 0.0f;
+                        (*c->output)(b, 0, 0) = *label == b ? 1.0f : 0.0f;
                 }
 
                 cases.push_back(c);
@@ -868,6 +878,7 @@ void reshape(int w, int h)
 
 float train(vector<Layer*> &layers, InputCase *input_case)//TensorFloat *data, TensorFloat *expected)
 {
+
         for(int i = 0; i < layers.size(); i++)
         {
                 Layer *layer = layers[i];
@@ -876,9 +887,11 @@ float train(vector<Layer*> &layers, InputCase *input_case)//TensorFloat *data, T
                 else       { layer->activate(layers[i - 1]->output); }
         }
 
-        return 0.0f;
+        TensorFloat* gradient = TensorFloat::diff(layers.back()->output, input_case->output); // difference between the neural network output and expected output
 
-        TensorFloat* gradients = layers.back()->output - input_case->output; // difference between the neural network output and expected output
+        delete gradient;
+
+        return 0.0f;
   //tensor_t<float> grads = layers.back()->out - expected;
 
 /*
@@ -920,6 +933,7 @@ static void* tensarThreadFunc(void* v) {
                 cout << "Train case " << i << "\n";
                 float xerr = train(layers, input_case);
         }
+
 }
 
 int main(int argc, char *argv[]) {
