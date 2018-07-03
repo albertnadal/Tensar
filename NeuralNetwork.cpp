@@ -1520,8 +1520,21 @@ static void* tensarThreadFunc(void* v) {
                         ep++;
                         ic++;
 
-                        if ( ep % 1000 == 0 )
-                                cout << "case " << ep << " err=" << amse/ic << endl;
+                        if(ep % 1000 == 0) {
+                          cout << "case " << ep << " err=" << amse/ic << endl;
+
+                          TensorFloat* expected = input_case->output;
+                          cout << "Expected:\n";
+                          for(int e = 0; e < 10; e++) {
+                            printf("[%i] %f\n", e, (*expected)(e, 0, 0)*100.0f);
+                          }
+
+                          cout << "Output:\n";
+                          TensorFloat* output = layers.back()->output;
+                          for(int o = 0; o < 10; o++) {
+                            printf("[%i] %f\n", o, (*output)(o, 0, 0)*100.0f);
+                          }
+                        }
                 }
         }
 }
