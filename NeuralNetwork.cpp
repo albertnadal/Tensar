@@ -62,6 +62,8 @@ enum LayerType { convolutional, fc, relu, pool, dropout_layer };
 int timebase_timestamp = 0;
 int frame_counter = 0;
 char current_fps_buffer[20];
+float avg_error_percent = 100.0f;
+char avg_error_percent_buffer[30];
 unsigned char *producer_frame_buffer = NULL;
 unsigned char *consumer_frame_buffer = NULL;
 mutex consumer_mutex;
@@ -121,6 +123,7 @@ public:
 int width; // pixels
 int height; // pixels
 char *caption = NULL;
+GLuint texture = NULL;
 
 unsigned char *producer_frame_buffer = NULL;
 unsigned char *consumer_frame_buffer = NULL;
@@ -155,6 +158,7 @@ void swapBuffers()
 }
 
 ~TensorRenderFrameBuffer() {
+
         if(producer_frame_buffer != NULL) {
                 delete[] producer_frame_buffer;
         }
@@ -243,9 +247,6 @@ public:
 
 size_t size;
 
-~Tensor() {
-}
-
 };
 
 class TensorFloat : public Tensor {
@@ -294,7 +295,6 @@ float& get(int x, int y, int z) const
 }
 
 ~TensorFloat() {
-//        cout << "~TensorFloat()\n";
         if(values != NULL) {
                 delete[] values;
         }
@@ -341,15 +341,9 @@ Gradient* get(int x, int y, int z)
         assert(x < size.width && y < size.height && z < size.depth);
         return values[z * (size.width * size.height) + y * size.width + x];
 }
-/*
-   void set( int x, int y, int z, float value)
-   {
-        assert(x >= 0 && y >= 0 && z >= 0);
-        assert(x < size.width && y < size.height && z < size.depth);
-        return values[z * (size.width * size.height) + y * size.width * x];
-   }*/
 
 ~TensorGradient() {
+
         for(int i=0; i < this->size.width * this->size.height * this->size.depth; i++) {
                 delete values[i];
         }
@@ -381,11 +375,12 @@ class ConvolutionalLayer : public Layer {
 
 public:
 
-vector<TensorFloat> filters;
+vector<TensorFloat*> filters;
 vector<TensorGradient*> filter_gradients;
 int stride, extend_filter;
 
 ConvolutionalLayer(int stride, int extend_filter, int number_filters, size_t in_size) {
+        cout << "Initializing ConvolutionalLayer...\n";
         type = LayerType::convolutional;
         input_size = in_size;
 
@@ -439,8 +434,11 @@ ConvolutionalLayer(int stride, int extend_filter, int number_filters, size_t in_
                 gridRenderFrameBuffer->set(3, i, new TensorRenderFrameBuffer((in_size.width - extend_filter) / stride + 1, (in_size.height - extend_filter) / stride + 1));
         }
 
+        cout << "Creating tensor for input gradients...\n";
         input_gradients = new TensorFloat(in_size.width, in_size.height, in_size.depth);
+        cout << "Creating tensor for input values...\n";
         input = new TensorFloat(in_size.width, in_size.height, in_size.depth);
+        cout << "Creating tensor for output values...\n";
         output = new TensorFloat((in_size.width - extend_filter) / stride + 1, (in_size.height - extend_filter) / stride + 1, number_filters);
         this->stride = stride;
         this->extend_filter = extend_filter;
@@ -451,7 +449,8 @@ ConvolutionalLayer(int stride, int extend_filter, int number_filters, size_t in_
 
         for(int a = 0; a < number_filters; a++) {
                 filterFrameBuffer = gridRenderFrameBuffer->get(1, a);
-                TensorFloat t(extend_filter, extend_filter, in_size.depth);
+                cout << "Creating tensor for filter #" << a << " ...\n";
+                TensorFloat *filter = new TensorFloat(extend_filter, extend_filter, in_size.depth);
                 int maxval = extend_filter * extend_filter * in_size.depth;
 
                 for(int x = 0; x < extend_filter; x++)
@@ -461,17 +460,18 @@ ConvolutionalLayer(int stride, int extend_filter, int number_filters, size_t in_
                                 for(int z = 0; z < in_size.depth; z++)
                                 {
                                         float value = 1.0f / maxval * rand() / float( RAND_MAX );
-                                        t(x, y, z) = value;
+                                        (*filter)(x, y, z) = value;
                                         filterFrameBuffer->set(x, y, (unsigned int)(value * 255));
                                 }
                         }
                 }
 
-                filters.push_back(t);
+                filters.push_back(filter);
                 filterFrameBuffer->swapBuffers();
         }
 
         for(int i = 0; i < number_filters; i++) {
+                cout << "Creating tensor gradient for gradient #" << i << " ...\n";
                 TensorGradient *tensorGradient = new TensorGradient(extend_filter, extend_filter, in_size.depth);
 
                 // Update render frame gradients buffer values
@@ -560,7 +560,7 @@ void activate() {
         for(int filter = 0; filter < filters.size(); filter++)
         {
                 TensorRenderFrameBuffer* outputFrameBuffer = gridRenderFrameBuffer->get(3, filter);
-                TensorFloat& filter_data = filters[filter];
+                TensorFloat *filter_data = filters[filter];
                 for(int x = 0; x < output->size.width; x++)
                 {
                         for(int y = 0; y < output->size.height; y++)
@@ -573,7 +573,7 @@ void activate() {
                                         {
                                                 for(int z = 0; z < input->size.depth; z++)
                                                 {
-                                                        float f = filter_data( i, j, z );
+                                                        float f = (*filter_data)( i, j, z );
                                                         float v = (*input)( mapped.x + i, mapped.y + j, z );
                                                         sum += f*v;
                                                 }
@@ -600,7 +600,8 @@ void fix_weights() {
                         {
                                 for(int z = 0; z < input->size.depth; z++)
                                 {
-                                        float& w = filters[k].get(x, y, z);
+                                        TensorFloat *filter = filters[k];
+                                        float& w = filter->get(x, y, z);
                                         TensorGradient *tensor_gradient = filter_gradients[k];
                                         Gradient *grad = tensor_gradient->get(x, y, z);
                                         w = update_weight(w, grad);
@@ -640,7 +641,8 @@ void calc_grads(TensorFloat* grad_next_layer) {
                                                 int miny = j * stride;
                                                 for(int k = 0; k < filters.size(); k++) {
                                                         TensorGradient *tensorGradient = filter_gradients[k];
-                                                        int w_applied = filters[k].get( x - minx, y - miny, z );
+                                                        TensorFloat *tensorFilter = filters[k];
+                                                        int w_applied = tensorFilter->get( x - minx, y - miny, z );
                                                         sum_error += w_applied * (*grad_next_layer)( i, j, k );
                                                         float value = (*input)( x, y, z ) * (*grad_next_layer)( i, j, k );
 
@@ -663,14 +665,15 @@ void calc_grads(TensorFloat* grad_next_layer) {
 }
 
 ~ConvolutionalLayer() {
-        delete gridRenderFrameBuffer;
+        for(int f=0; f<filters.size(); f++)
+                delete filters[f];
 
         for(int i=0; i<filter_gradients.size(); i++)
                 delete filter_gradients[i];
-
         delete input_gradients;
         delete input;
         delete output;
+        delete gridRenderFrameBuffer;
 //TODO: Implement proper delete allocated filters
 
 
@@ -683,6 +686,7 @@ class ReLuLayer : public Layer {
 public:
 
 ReLuLayer(size_t in_size) {
+        cout << "Initializing ReLuLayer...\n";
         type = LayerType::relu;
         input_size = in_size;
 
@@ -709,8 +713,11 @@ ReLuLayer(size_t in_size) {
 
         gridRenderFrameBuffer->set(1, 0, new TensorRenderFrameBuffer(in_size.width, in_size.height));
 
+        cout << "Creating tensor for input gradients...\n";
         input_gradients = new TensorFloat(in_size.width, in_size.height, in_size.depth);
+        cout << "Creating tensor for input values...\n";
         input = new TensorFloat(in_size.width, in_size.height, in_size.depth);
+        cout << "Creating tensor for output values...\n";
         output = new TensorFloat(in_size.width, in_size.height, in_size.depth);
 }
 
@@ -792,11 +799,11 @@ class PoolLayer : public Layer {
 
 public:
 
-vector<TensorFloat> filters;
 vector<TensorGradient*> filter_gradients;
 int stride, extend_filter;
 
 PoolLayer(int stride, int extend_filter, size_t in_size) {
+        cout << "Initializing PoolLayer...\n";
         type = LayerType::pool;
         input_size = in_size;
 
@@ -871,7 +878,7 @@ range_t map_to_output(int x, int y) {
                        0,
                        normalize_range( a / stride, output->size.width, false ),
                        normalize_range( b / stride, output->size.height, false ),
-                       (int)filters.size() - 1,
+                       (int)output->size.depth - 1,
         };
 }
 
@@ -879,22 +886,19 @@ void activate(TensorFloat *in) {
         this->input = in;
 
         // Update render frame inputs buffer values
-        for(int filter = 0; filter < filters.size(); filter++)
+        TensorRenderFrameBuffer* inputFrameBuffer = gridRenderFrameBuffer->get(0, 0);
+        for(int x = 0; x < in->size.width; x++)
         {
-                TensorRenderFrameBuffer* inputFrameBuffer = gridRenderFrameBuffer->get(0, filter);
-                for(int x = 0; x < in->size.width; x++)
+                for(int y = 0; y < in->size.height; y++)
                 {
-                        for(int y = 0; y < input_size.height; y++)
+                        for(int z = 0; z < in->size.depth; z++)
                         {
-                                for(int z = 0; z < input_size.depth; z++)
-                                {
-                                        float value = in->get(x, y, z);
-                                        inputFrameBuffer->set(x, y, (unsigned int)(value * 255));
-                                }
+                                float value = in->get(x, y, z);
+                                inputFrameBuffer->set(x, y, (unsigned int)(value * 255));
                         }
                 }
-                inputFrameBuffer->swapBuffers();
         }
+        inputFrameBuffer->swapBuffers();
 
         // Activate
         activate();
@@ -982,6 +986,7 @@ vector<float> input_vector;
 vector<Gradient> gradients;
 
 FullyConnectedLayer(size_t in_size, size_t out_size) {
+        cout << "Initializing FullyConnectedLayer...\n";
         type = LayerType::fc;
         input_size = in_size;
         output_size = out_size;
@@ -1148,16 +1153,10 @@ void calc_grads(TensorFloat* grad_next_layer) {
 
 ~FullyConnectedLayer() {
 
-        cout << "DELETE ~FullyConnectedLayer()\n";
-
-//        delete gridRenderFrameBuffer;
-/*
-        for(int i=0; i<filter_gradients.size(); i++)
-                delete filter_gradients[i];
- */
-//        delete input_gradients;
-//        delete input;
-//        delete output;
+        delete gridRenderFrameBuffer;
+        delete input_gradients;
+        delete input;
+        delete output;
 //TODO: Implement proper delete allocated filters
 
 
@@ -1247,28 +1246,25 @@ GLuint LoadTextureWithTensorRenderFrameBuffer(TensorRenderFrameBuffer *tensorFra
         if(tensorFrameBuffer->consumer_frame_buffer == NULL) {
                 return NULL;
         }
-/*
-        TensorRenderFrameBuffer *buffer = new TensorRenderFrameBuffer(w, h);
 
-        for(int x=0; x < w; x++)
-          for(int y=0; y < h; y++)
-            buffer->set(x, y, (x == y) ? 200 : 0);
- */
-        GLuint texture;
-        glGenTextures( 1, &texture );
-        glBindTexture( GL_TEXTURE_2D, texture );
+        if(tensorFrameBuffer->texture != NULL) {
+          // Delete previous generated texture
+          glDeleteTextures(1, &tensorFrameBuffer->texture);
+        }
+
+        glGenTextures( 1, &tensorFrameBuffer->texture );
+        glBindTexture( GL_TEXTURE_2D, tensorFrameBuffer->texture );
         glTexEnvf( GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE );
         glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST );
         glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST );
-        //glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S,GL_REPEAT );
-        //glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T,GL_REPEAT );
-
+        glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE );
+        glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE );
         gluBuild2DMipmaps( GL_TEXTURE_2D, GL_RGB, tensorFrameBuffer->width, tensorFrameBuffer->height, GL_RGB, GL_UNSIGNED_BYTE, tensorFrameBuffer->consumer_frame_buffer);
-//delete buffer;
+
         tensorFrameBuffer->is_consuming_frame_buffer = false;
         tensorFrameBuffer->consumer_mutex.unlock();
 
-        return texture;
+        return tensorFrameBuffer->texture;
 }
 
 GLuint LoadTexture()
@@ -1333,7 +1329,7 @@ void display(void)
  */
 
         glEnable(GL_TEXTURE_2D);
-        int x_offset = 100;
+        int x_offset = 20;
         int y_offset = 0;
         for(Layer* layer: layers) {
                 LayerGridFrameBuffer *grid = layer->gridRenderFrameBuffer;
@@ -1380,6 +1376,8 @@ void display(void)
         glDisable(GL_TEXTURE_2D);
 
         drawString(WIDTH - 45, 15, current_fps_buffer, GLUT_BITMAP_HELVETICA_10);
+        snprintf(avg_error_percent_buffer, 30, "%4.5f Avg. error", avg_error_percent);
+        drawString(WIDTH - 220, HEIGHT - 18, avg_error_percent_buffer, GLUT_BITMAP_TIMES_ROMAN_24);
 
         glFlush();
         glutSwapBuffers();
@@ -1459,21 +1457,16 @@ float train(vector<Layer*> &layers, InputCase *input_case)//TensorFloat *data, T
 
         //output of the last layer must have the same size as the case expected size
         TensorFloat* diff_gradient = TensorFloat::diff(layers.back()->output, input_case->output); // difference between the neural network output and expected output
-        //tensor_t<float> grads = layers.back()->out - expected;
 
         for(int i = layers.size() - 1; i >= 0; i--) {
                 if(i == layers.size() - 1)  { layers[i]->calc_grads(diff_gradient); }
                 else                        { layers[i]->calc_grads(layers[i + 1]->input_gradients); }
         }
 
-        delete diff_gradient;
-
+        //WARNING: following massive calls to fix_weights causes memory leaks
         for(int i = 0; i < layers.size(); i++) {
                 layers[i]->fix_weights();
         }
-
-//        cout << "DIFF WIDTH: " << diff_gradient->size.width << " HEIGHT: " << diff_gradient->size.height << " DEPTH: " << diff_gradient->size.depth << "\n";
-//        cout << "INPUT CASE WIDTH: " << input_case->output->size.width << " HEIGHT: " << input_case->output->size.height << " DEPTH: " << input_case->output->size.depth << "\n";
 
         float err = 0;
 
@@ -1486,6 +1479,8 @@ float train(vector<Layer*> &layers, InputCase *input_case)//TensorFloat *data, T
                                 err += abs(diff_gradient->values[i]);
                 }
         }
+
+        delete diff_gradient;
 
         return err * 100;
 }
@@ -1507,6 +1502,8 @@ static void* tensarThreadFunc(void* v) {
         float amse = 0;
         int ic = 0;
 
+        cout << "Start training...\n";
+
         for(long ep = 0; ep < 100000;)
         {
 
@@ -1519,21 +1516,22 @@ static void* tensarThreadFunc(void* v) {
 
                         ep++;
                         ic++;
+                        avg_error_percent = amse/ic;
 
                         if(ep % 1000 == 0) {
-                          cout << "case " << ep << " err=" << amse/ic << endl;
+                                cout << "case " << ep << " err=" << avg_error_percent << endl;
 
-                          TensorFloat* expected = input_case->output;
-                          cout << "Expected:\n";
-                          for(int e = 0; e < 10; e++) {
-                            printf("[%i] %f\n", e, (*expected)(e, 0, 0)*100.0f);
-                          }
+                                TensorFloat* expected = input_case->output;
+                                cout << "Expected:\n";
+                                for(int e = 0; e < 10; e++) {
+                                        printf("[%i] %f\n", e, (*expected)(e, 0, 0)*100.0f);
+                                }
 
-                          cout << "Output:\n";
-                          TensorFloat* output = layers.back()->output;
-                          for(int o = 0; o < 10; o++) {
-                            printf("[%i] %f\n", o, (*output)(o, 0, 0)*100.0f);
-                          }
+                                cout << "Output:\n";
+                                TensorFloat* output = layers.back()->output;
+                                for(int o = 0; o < 10; o++) {
+                                        printf("[%i] %f\n", o, (*output)(o, 0, 0)*100.0f);
+                                }
                         }
                 }
         }
