@@ -18,8 +18,8 @@
 #include <GL/glut.h>
 #endif
 
-#define WIDTH 1024
-#define HEIGHT 700
+#define WIDTH 1480
+#define HEIGHT 1000
 
 #define LEARNING_RATE 0.01
 #define MOMENTUM 0.6
@@ -1248,8 +1248,8 @@ GLuint LoadTextureWithTensorRenderFrameBuffer(TensorRenderFrameBuffer *tensorFra
         }
 
         if(tensorFrameBuffer->texture != NULL) {
-          // Delete previous generated texture
-          glDeleteTextures(1, &tensorFrameBuffer->texture);
+                // Delete previous generated texture
+                glDeleteTextures(1, &tensorFrameBuffer->texture);
         }
 
         glGenTextures( 1, &tensorFrameBuffer->texture );
@@ -1487,16 +1487,35 @@ float train(vector<Layer*> &layers, InputCase *input_case)//TensorFloat *data, T
 
 static void* tensarThreadFunc(void* v) {
         vector<InputCase*> cases = read_test_cases();
+        /*
+               // stride, filter_width(extend_filter), num_filters, filter_size
+               ConvolutionalLayer *cnn_layer = new ConvolutionalLayer(1, 5, 8, cases[0]->data->size);    // 28 * 28 * 1 -> 24 * 24 * 8
+               ReLuLayer *relu_layer = new ReLuLayer(cnn_layer->output->size);    // 28 * 28 * 1 -> 24 * 24 * 8
+               PoolLayer *pool_layer = new PoolLayer(2, 2, relu_layer->output->size);
+               FullyConnectedLayer *fc_layer = new FullyConnectedLayer(pool_layer->output->size, {10, 1, 1});
 
-        // stride, filter_width(extend_filter), num_filters, filter_size
-        ConvolutionalLayer *cnn_layer = new ConvolutionalLayer(1, 5, 8, cases[0]->data->size);    // 28 * 28 * 1 -> 24 * 24 * 8
-        ReLuLayer *relu_layer = new ReLuLayer(cnn_layer->output->size);    // 28 * 28 * 1 -> 24 * 24 * 8
-        PoolLayer *pool_layer = new PoolLayer(2, 2, relu_layer->output->size);
-        FullyConnectedLayer *fc_layer = new FullyConnectedLayer(pool_layer->output->size, {10, 1, 1});
+               layers.push_back(cnn_layer);
+               layers.push_back(relu_layer);
+               layers.push_back(pool_layer);
+               layers.push_back(fc_layer);
+         */
 
-        layers.push_back(cnn_layer);
-        layers.push_back(relu_layer);
-        layers.push_back(pool_layer);
+        ConvolutionalLayer *cnn_layer1 = new ConvolutionalLayer(1, 5, 8, cases[0]->data->size); // 28 * 28 * 1 -> 24 * 24 * 8
+        ReLuLayer *relu_layer1 = new ReLuLayer(cnn_layer1->output->size); // 28 * 28 * 1 -> 24 * 24 * 8
+        PoolLayer *pool_layer1 = new PoolLayer(2, 2, relu_layer1->output->size);
+
+        ConvolutionalLayer *cnn_layer2 = new ConvolutionalLayer(1, 3, 10, pool_layer1->output->size); // 28 * 28 * 1 -> 24 * 24 * 8
+        ReLuLayer *relu_layer2 = new ReLuLayer(cnn_layer2->output->size); // 28 * 28 * 1 -> 24 * 24 * 8
+        PoolLayer *pool_layer2 = new PoolLayer(2, 2, relu_layer2->output->size);
+
+        FullyConnectedLayer *fc_layer = new FullyConnectedLayer(pool_layer2->output->size, {10, 1, 1});
+
+        layers.push_back(cnn_layer1);
+        layers.push_back(relu_layer1);
+        layers.push_back(pool_layer1);
+        layers.push_back(cnn_layer2);
+        layers.push_back(relu_layer2);
+        layers.push_back(pool_layer2);
         layers.push_back(fc_layer);
 
         float amse = 0;
