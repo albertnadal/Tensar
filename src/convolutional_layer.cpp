@@ -32,10 +32,10 @@ ConvolutionalLayer(int stride, int extend_filter, int number_filters, size_tenso
         // ...
         // {cellObj, cellObj, cellObj, cellObj}
 
-        gridRenderFrameBuffer = new LayerGridFrameBuffer(3, number_filters, "Convolutional"); // 3 = {input, filter, gradient, output}
+        gridRenderFrameBuffer = new LayerGridFrameBuffer(3, number_filters, (char*)"Convolutional"); // 3 = {input, filter, gradient, output}
 
         // Initialize first column of the grid with Inputs buffers
-        gridRenderFrameBuffer->column_titles.push_back("in");
+        gridRenderFrameBuffer->column_titles.push_back((char*)"in");
         char *subtitle = new char[50];
         sprintf(subtitle, "%d x %d", in_size.width, in_size.height);
         gridRenderFrameBuffer->column_subtitles.push_back(subtitle);
@@ -45,7 +45,7 @@ ConvolutionalLayer(int stride, int extend_filter, int number_filters, size_tenso
         }
 
         // Initialize second column of the grid with Filters buffers
-        gridRenderFrameBuffer->column_titles.push_back("filter");
+        gridRenderFrameBuffer->column_titles.push_back((char*)"filter");
         subtitle = new char[50];
         sprintf(subtitle, "%d x %d", extend_filter, extend_filter);
         gridRenderFrameBuffer->column_subtitles.push_back(subtitle);
@@ -55,7 +55,7 @@ ConvolutionalLayer(int stride, int extend_filter, int number_filters, size_tenso
         }
 
         // Initialize forth column of the grid with Output buffers
-        gridRenderFrameBuffer->column_titles.push_back("out");
+        gridRenderFrameBuffer->column_titles.push_back((char*)"out");
         subtitle = new char[50];
         sprintf(subtitle, "%d x %d", (in_size.width - extend_filter) / stride + 1, (in_size.height - extend_filter) / stride + 1);
         gridRenderFrameBuffer->column_subtitles.push_back(subtitle);

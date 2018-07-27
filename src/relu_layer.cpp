@@ -21,12 +21,12 @@ ReLuLayer(size_tensor in_size) {
         // {input, output}
         // {cellObj, cellObj}
 
-        gridRenderFrameBuffer = new LayerGridFrameBuffer(2, in_size.depth, "ReLu");   // 2 = {input, output}
+        gridRenderFrameBuffer = new LayerGridFrameBuffer(2, in_size.depth, (char*)"ReLu");   // 2 = {input, output}
 
         // Initialize first column of the grid with Inputs buffers
-        gridRenderFrameBuffer->column_titles.push_back("in");
+        gridRenderFrameBuffer->column_titles.push_back((char*)"in");
         char* subtitle = new char[50];
-        sprintf(subtitle, "%d x %d", in_size.width, in_size.height, in_size.depth);
+        sprintf(subtitle, "%d x %d x %d", in_size.width, in_size.height, in_size.depth);
         gridRenderFrameBuffer->column_subtitles.push_back(subtitle);
 
         for(int i=0; i<in_size.depth; i++) {
@@ -34,7 +34,7 @@ ReLuLayer(size_tensor in_size) {
         }
 
         // Initialize forth column of the grid with Output buffers
-        gridRenderFrameBuffer->column_titles.push_back("out");
+        gridRenderFrameBuffer->column_titles.push_back((char*)"out");
         subtitle = new char[50];
         sprintf(subtitle, "%d x %d", in_size.width, in_size.height);
         gridRenderFrameBuffer->column_subtitles.push_back(subtitle);

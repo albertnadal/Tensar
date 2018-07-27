@@ -100,10 +100,10 @@ GLuint LoadTextureWithTensorRenderFrameBuffer(TensorRenderFrameBuffer *tensorFra
         tensorFrameBuffer->is_consuming_frame_buffer = true;
 
         if(tensorFrameBuffer->consumer_frame_buffer == NULL) {
-                return NULL;
+                return 0;
         }
 
-        if(tensorFrameBuffer->texture != NULL) {
+        if(tensorFrameBuffer->texture) {
                 // Delete previous generated texture
                 glDeleteTextures(1, &tensorFrameBuffer->texture);
         }
@@ -126,7 +126,7 @@ GLuint LoadTextureWithTensorRenderFrameBuffer(TensorRenderFrameBuffer *tensorFra
 GLuint LoadTexture()
 {
         if(consumer_frame_buffer == NULL) {
-                return NULL;
+                return 0;
         }
 
         GLuint texture;
@@ -185,7 +185,7 @@ void display(void)
                                 int tile_width = (tensorFrameBuffer->texture_width * 30) / tensorFrameBuffer->width;
                                 int tile_height = (tensorFrameBuffer->texture_height * 30) / tensorFrameBuffer->height;
 
-                                if(texture != NULL) {
+                                if(texture) {
                                         glBindTexture(GL_TEXTURE_2D, texture);
                                         glBegin(GL_QUADS);
                                         glTexCoord2f(0, 0);
@@ -370,6 +370,7 @@ static void* tensarThreadFunc(void* v) {
                         }
                 }
         }
+        return 0;
 }
 
 int main(int argc, char *argv[]) {

@@ -23,7 +23,7 @@ int height; // pixels
 int texture_width; // pixels
 int texture_height; // pixels
 char *caption = NULL;
-GLuint texture = NULL;
+GLuint texture = 0;
 
 unsigned char *producer_frame_buffer = NULL;
 unsigned char *consumer_frame_buffer = NULL;
