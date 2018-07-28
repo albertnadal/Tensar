@@ -74,7 +74,28 @@ void set128(int x, int y, int value) const
         producer_frame_buffer[(y * texture_width * 4) + x * 4 + 3] = 1.0f; //Alpha
 }
 
-signed int get(int x, int y) const
+unsigned char getRed(int x, int y) const
+{
+  assert(x >= 0 && y >= 0);
+  assert(x < texture_width && y < texture_height);
+  return consumer_frame_buffer[(y * texture_width * 4) + x * 4];
+}
+
+unsigned char getGreen(int x, int y) const
+{
+  assert(x >= 0 && y >= 0);
+  assert(x < texture_width && y < texture_height);
+  return consumer_frame_buffer[(y * texture_width * 4) + x * 4 + 1];
+}
+
+unsigned char getBlue(int x, int y) const
+{
+  assert(x >= 0 && y >= 0);
+  assert(x < texture_width && y < texture_height);
+  return consumer_frame_buffer[(y * texture_width * 4) + x * 4 + 2];
+}
+
+signed int getValue(int x, int y) const
 {
         assert(x >= 0 && y >= 0);
         assert(x < texture_width && y < texture_height);

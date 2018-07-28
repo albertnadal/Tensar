@@ -228,6 +228,7 @@ void display(void)
         /*** X,Y,X axis ***/
 
         // Enable 3D mode
+
         glLoadIdentity();
         glOrtho(0.0, WIDTH, 0.0, HEIGHT, 0.0, 1000.0f);
         glDepthFunc(GL_LESS);
@@ -260,9 +261,9 @@ void display(void)
                 glutBitmapCharacter(GLUT_BITMAP_HELVETICA_12, 'z');
 
                 if(layers.size()) {
-                  Layer* layer = layers[3];
+                  Layer* layer = layers[2];
                   LayerGridFrameBuffer *grid = layer->gridRenderFrameBuffer;
-                  TensorRenderFrameBuffer* tensorFrameBuffer = grid->get(0, 0); // first filter tensor
+                  TensorRenderFrameBuffer* tensorFrameBuffer = grid->get(2, 2); // first filter tensor
 
                   tensorFrameBuffer->consumer_mutex.lock();
                   tensorFrameBuffer->is_consuming_frame_buffer = true;
@@ -270,19 +271,24 @@ void display(void)
                   float cell_width = 200.0f / tensorFrameBuffer->width;
                   float cell_height = 600.0f / tensorFrameBuffer->height;
 
-                  glColor4ub(244, 66, 66, 255);
-                	glBegin (GL_LINES);
-                  for( int i = 0; i < tensorFrameBuffer->width - 1; i++ ) {
-                      for( int j = 0; j < tensorFrameBuffer->height; j++ ) {
-                        glVertex3f (i*cell_width + axis_x_offset, ((tensorFrameBuffer->get(i, j) * 50) / 255) + axis_y_offset, -j*cell_height);
-                        glVertex3f ((i+1)*cell_width + axis_x_offset, ((tensorFrameBuffer->get(i+1, j) * 50) / 255) + axis_y_offset, -(j)*cell_height);
-                      }
-                  }
+                  glMatrixMode(GL_MODELVIEW);
 
+                	glBegin (GL_QUADS);
                   for( int i = 0; i < tensorFrameBuffer->width - 1; i++ ) {
                       for( int j = 0; j < tensorFrameBuffer->height; j++ ) {
-                        glVertex3f (j*cell_width + axis_x_offset, ((tensorFrameBuffer->get(j, i) * 50) / 255) + axis_y_offset, -i*cell_height);
-                        glVertex3f (j*cell_width + axis_x_offset, ((tensorFrameBuffer->get(j, i+1) * 50) / 255) + axis_y_offset, -(i+1)*cell_height);
+                        //top left
+                        glColor4ub(tensorFrameBuffer->getRed(i, j), tensorFrameBuffer->getGreen(i, j), tensorFrameBuffer->getBlue(i, j), 255);
+                        glVertex3f (i*cell_width + axis_x_offset, ((tensorFrameBuffer->getValue(i, j) * 50) / 255) + axis_y_offset, -j*cell_height);
+                        //bottom left
+                        glColor4ub(tensorFrameBuffer->getRed(i, j+1), tensorFrameBuffer->getGreen(i, j+1), tensorFrameBuffer->getBlue(i, j+1), 255);
+                        glVertex3f (i*cell_width + axis_x_offset, ((tensorFrameBuffer->getValue(i, j+1) * 50) / 255) + axis_y_offset, -(j+1)*cell_height);
+                        //bottom right
+                        glColor4ub(tensorFrameBuffer->getRed(i+1, j+1), tensorFrameBuffer->getGreen(i+1, j+1), tensorFrameBuffer->getBlue(i+1, j+1), 255);
+                        glVertex3f ((i+1)*cell_width + axis_x_offset, ((tensorFrameBuffer->getValue(i+1, j+1) * 50) / 255) + axis_y_offset, -(j+1)*cell_height);
+                        //top right
+                        glColor4ub(tensorFrameBuffer->getRed(i+1, j), tensorFrameBuffer->getGreen(i+1, j), tensorFrameBuffer->getBlue(i+1, j), 255);
+                        glVertex3f ((i+1)*cell_width + axis_x_offset, ((tensorFrameBuffer->getValue(i+1, j) * 50) / 255) + axis_y_offset, -(j)*cell_height);
+
                       }
                   }
                 	glEnd ();
@@ -291,7 +297,6 @@ void display(void)
                   tensorFrameBuffer->consumer_mutex.unlock();
                 }
         /*****/
-
         glFlush();
         glutSwapBuffers();
 }
