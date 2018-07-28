@@ -74,6 +74,15 @@ void set128(int x, int y, int value) const
         producer_frame_buffer[(y * texture_width * 4) + x * 4 + 3] = 1.0f; //Alpha
 }
 
+signed int get(int x, int y) const
+{
+        assert(x >= 0 && y >= 0);
+        assert(x < texture_width && y < texture_height);
+        signed int negative_value = consumer_frame_buffer[(y * texture_width * 4) + x * 4] * -1.0f;
+        signed int positive_valye = consumer_frame_buffer[(y * texture_width * 4) + x * 4 + 1];
+        return negative_value + positive_valye;
+}
+
 void swapBuffers()
 {
         if(!is_consuming_frame_buffer) {

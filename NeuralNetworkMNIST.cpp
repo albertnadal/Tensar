@@ -30,8 +30,16 @@ using namespace std;
 
 namespace NeuralNetwork {
 
-class InputCase;
-class Layer;
+  int graph_samples = 30;
+  int graph_y_scale = 150;
+  GLuint buffer_3d_1;
+  GLuint buffer_3d_2;
+  GLuint uniform_color;
+struct position {
+  GLfloat x;
+  GLfloat y;
+  GLfloat z;
+};
 
 int timebase_timestamp = 0;
 int frame_counter = 0;
@@ -148,6 +156,11 @@ void display(void)
 {
         frame_counter++;
 
+        // Enable 2D mode
+        glMatrixMode(GL_PROJECTION);
+        glLoadIdentity();
+        gluOrtho2D(0.0, (GLdouble) WIDTH, 0.0, (GLdouble) HEIGHT);
+
         glClear(GL_COLOR_BUFFER_BIT);
 
         if(glutGet(GLUT_ELAPSED_TIME) - timebase_timestamp > 1000) {
@@ -170,7 +183,7 @@ void display(void)
 
                 for(int x=0; x<grid->width; x++) {
 
-                        x_offset += 10;
+                        x_offset += 24;
                         y_offset = 44;
 
                         drawString(x_offset, 50, grid->column_titles[x], GLUT_BITMAP_HELVETICA_10);
@@ -182,8 +195,8 @@ void display(void)
                                 y_offset += 24;
                                 TensorRenderFrameBuffer* tensorFrameBuffer = grid->get(x, y);
                                 GLuint texture = LoadTextureWithTensorRenderFrameBuffer(tensorFrameBuffer);
-                                int tile_width = (tensorFrameBuffer->texture_width * 30) / tensorFrameBuffer->width;
-                                int tile_height = (tensorFrameBuffer->texture_height * 30) / tensorFrameBuffer->height;
+                                int tile_width = (tensorFrameBuffer->texture_width * 40) / tensorFrameBuffer->width;
+                                int tile_height = (tensorFrameBuffer->texture_height * 40) / tensorFrameBuffer->height;
 
                                 if(texture) {
                                         glBindTexture(GL_TEXTURE_2D, texture);
@@ -206,9 +219,78 @@ void display(void)
         }
         glDisable(GL_TEXTURE_2D);
 
+
         drawString(WIDTH - 45, 15, current_fps_buffer, GLUT_BITMAP_HELVETICA_10);
         snprintf(avg_error_percent_buffer, 30, "%4.5f Avg. error", avg_error_percent);
         drawString(WIDTH - 220, HEIGHT - 18, avg_error_percent_buffer, GLUT_BITMAP_TIMES_ROMAN_24);
+
+
+        /*** X,Y,X axis ***/
+
+        // Enable 3D mode
+        glLoadIdentity();
+        glOrtho(0.0, WIDTH, 0.0, HEIGHT, 0.0, 1000.0f);
+        glDepthFunc(GL_LESS);
+        glDepthRange(0.0f, 1.0f);
+
+                float axis_x_offset = 1000.0f;
+                float axis_y_offset = 200.0f;
+                glRotatef(10.0f, -1.0f, 1.0f, 0.0f);
+
+                glColor4ub(0, 0, 0, 255);
+                glBegin(GL_LINE_STRIP);
+                glVertex3f(0.0f + axis_x_offset, 0.0f + axis_y_offset, 0.0f);
+                glVertex3f(200.0f + axis_x_offset, 0.0f + axis_y_offset, 0.0f);
+                glEnd();
+                glBegin(GL_LINE_STRIP);
+                glVertex3f(0.0f + axis_x_offset, 0.0f + axis_y_offset, 0.0f);
+                glVertex3f(0.0f + axis_x_offset, 100.0f + axis_y_offset, 0.0f);
+                glEnd();
+                glBegin(GL_LINE_STRIP);
+                glVertex3f(0.0f + axis_x_offset, 0.0f + axis_y_offset, 0.0f);
+                glVertex3f(0.0f + axis_x_offset, 0.0f + axis_y_offset, -600.0f);
+                glEnd();
+
+                glColor4ub(200, 55, 100, 255);
+                glRasterPos3f(210.0f + axis_x_offset, 0.0f + axis_y_offset, 0.0f);
+                glutBitmapCharacter(GLUT_BITMAP_HELVETICA_12, 'x');
+                glRasterPos3f(0.0f + axis_x_offset, 110.0f + axis_y_offset, 0.0f);
+                glutBitmapCharacter(GLUT_BITMAP_HELVETICA_12, 'y');
+                glRasterPos3f(0.0f + axis_x_offset, 0.0f + axis_y_offset, -680.0f);
+                glutBitmapCharacter(GLUT_BITMAP_HELVETICA_12, 'z');
+
+                if(layers.size()) {
+                  Layer* layer = layers[3];
+                  LayerGridFrameBuffer *grid = layer->gridRenderFrameBuffer;
+                  TensorRenderFrameBuffer* tensorFrameBuffer = grid->get(0, 0); // first filter tensor
+
+                  tensorFrameBuffer->consumer_mutex.lock();
+                  tensorFrameBuffer->is_consuming_frame_buffer = true;
+
+                  float cell_width = 200.0f / tensorFrameBuffer->width;
+                  float cell_height = 600.0f / tensorFrameBuffer->height;
+
+                  glColor4ub(244, 66, 66, 255);
+                	glBegin (GL_LINES);
+                  for( int i = 0; i < tensorFrameBuffer->width - 1; i++ ) {
+                      for( int j = 0; j < tensorFrameBuffer->height; j++ ) {
+                        glVertex3f (i*cell_width + axis_x_offset, ((tensorFrameBuffer->get(i, j) * 50) / 255) + axis_y_offset, -j*cell_height);
+                        glVertex3f ((i+1)*cell_width + axis_x_offset, ((tensorFrameBuffer->get(i+1, j) * 50) / 255) + axis_y_offset, -(j)*cell_height);
+                      }
+                  }
+
+                  for( int i = 0; i < tensorFrameBuffer->width - 1; i++ ) {
+                      for( int j = 0; j < tensorFrameBuffer->height; j++ ) {
+                        glVertex3f (j*cell_width + axis_x_offset, ((tensorFrameBuffer->get(j, i) * 50) / 255) + axis_y_offset, -i*cell_height);
+                        glVertex3f (j*cell_width + axis_x_offset, ((tensorFrameBuffer->get(j, i+1) * 50) / 255) + axis_y_offset, -(i+1)*cell_height);
+                      }
+                  }
+                	glEnd ();
+
+                  tensorFrameBuffer->is_consuming_frame_buffer = false;
+                  tensorFrameBuffer->consumer_mutex.unlock();
+                }
+        /*****/
 
         glFlush();
         glutSwapBuffers();
@@ -273,7 +355,6 @@ void reshape(int w, int h)
         glViewport(0, 0, WIDTH, HEIGHT);
         glMatrixMode(GL_PROJECTION);
         glLoadIdentity();
-        gluOrtho2D(0.0, (GLdouble) w, 0.0, (GLdouble) h);
 }
 
 float train(vector<Layer*> &layers, InputCase *input_case)//TensorFloat *data, TensorFloat *expected)
