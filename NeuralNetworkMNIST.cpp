@@ -1,7 +1,6 @@
 #include <fstream>
 #include <pthread.h>
 #include <vector>
-#include <mutex>
 
 #include "src/common.cpp"
 #include "src/tensor.cpp"
@@ -23,8 +22,16 @@
 #include <GL/glut.h>
 #endif
 
-#define WIDTH 1280
-#define HEIGHT 740
+#define INPUT_WIDTH 28
+#define INPUT_HEIGHT 28
+#define INPUT_DEPTH 1
+
+#define OUTPUT_WIDTH 10
+#define OUTPUT_HEIGHT 1
+#define OUTPUT_DEPTH 1
+
+#define SCREEN_WIDTH 1280
+#define SCREEN_HEIGHT 740
 
 using namespace std;
 
@@ -32,40 +39,21 @@ namespace NeuralNetwork {
 
 int mouse_x = 0;
 int mouse_y = 0;
+TensorRenderFrameBuffer* currentInputTensorFrameBuffer = NULL;
 TensorRenderFrameBuffer* selectedTensorFrameBuffer = NULL;
 int timebase_timestamp = 0;
 int frame_counter = 0;
 char current_fps_buffer[20];
 float avg_error_percent = 100.0f;
 char avg_error_percent_buffer[30];
-char press_space_buffer[30];
-unsigned char *producer_frame_buffer = NULL;
-unsigned char *consumer_frame_buffer = NULL;
-mutex consumer_mutex;
-bool is_consuming_frame_buffer = false;
-
+char press_space_buffer[40];
 vector<Layer*> layers;
 
-class Network {
-vector<Layer*> layers;
-
-public:
-
-Network() {
-
 }
-
-};
-
-
-}
-
-/***********************************/
-
 
 using namespace NeuralNetwork;
 
-uint32_t byteswap_uint32(uint32_t a)
+uint32_t byteswapUint32(uint32_t a)
 {
         return ((((a >> 24) & 0xff) << 0) |
                 (((a >> 16) & 0xff) << 8) |
@@ -73,7 +61,7 @@ uint32_t byteswap_uint32(uint32_t a)
                 (((a >> 0) & 0xff) << 24));
 }
 
-uint8_t* read_file( const char* szFile )
+uint8_t* readFile( const char* szFile )
 {
         ifstream file( szFile, ios::binary | ios::ate );
         streamsize size = file.tellg();
@@ -89,13 +77,13 @@ uint8_t* read_file( const char* szFile )
 
 void drawString(int x, int y, char* msg, void *font = GLUT_BITMAP_HELVETICA_10) {
         glColor3d(0.0, 0.0, 0.0);
-        glRasterPos2d(x, HEIGHT - y);
+        glRasterPos2d(x, SCREEN_HEIGHT - y);
         for (const char *c = msg; *c != '\0'; c++) {
                 glutBitmapCharacter(font, *c);
         }
 }
 
-GLuint LoadTextureWithTensorRenderFrameBuffer(TensorRenderFrameBuffer *tensorFrameBuffer)
+GLuint loadTextureWithTensorRenderFrameBuffer(TensorRenderFrameBuffer *tensorFrameBuffer)
 {
         tensorFrameBuffer->consumer_mutex.lock();
         tensorFrameBuffer->is_consuming_frame_buffer = true;
@@ -124,36 +112,14 @@ GLuint LoadTextureWithTensorRenderFrameBuffer(TensorRenderFrameBuffer *tensorFra
         return tensorFrameBuffer->texture;
 }
 
-GLuint LoadTexture()
-{
-        if(consumer_frame_buffer == NULL) {
-                return 0;
-        }
-
-        GLuint texture;
-        int width = 28;
-        int height = 28;
-
-        glGenTextures( 1, &texture );
-        glBindTexture( GL_TEXTURE_2D, texture );
-        glTexEnvf( GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE );
-        glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST );
-        glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST );
-
-        gluBuild2DMipmaps( GL_TEXTURE_2D, GL_RGB, width, height, GL_RGB, GL_UNSIGNED_BYTE, consumer_frame_buffer);
-
-        return texture;
-}
-
 void display(void)
 {
         frame_counter++;
 
         /*** BEGIN: 2D tensors ***/
-        // Enable 2D mode
         glMatrixMode(GL_PROJECTION);
         glLoadIdentity();
-        gluOrtho2D(0.0, (GLdouble) WIDTH, 0.0, (GLdouble) HEIGHT);
+        gluOrtho2D(0.0, (GLdouble) SCREEN_WIDTH, 0.0, (GLdouble) SCREEN_HEIGHT);
 
         glClear(GL_COLOR_BUFFER_BIT);
 
@@ -169,6 +135,41 @@ void display(void)
         glEnable(GL_TEXTURE_2D);
         int x_offset = 20;
         int y_offset = 0;
+
+        // Draw the current input case
+        if(currentInputTensorFrameBuffer != NULL) {
+                drawString(x_offset, 25, (char*)"Input", GLUT_BITMAP_HELVETICA_18);
+                y_offset = 44;
+                drawString(x_offset, 50, (char*)"in", GLUT_BITMAP_HELVETICA_10);
+                drawString(x_offset, 65, (char*)"28 x 28", GLUT_BITMAP_TIMES_ROMAN_10);
+                y_offset += 24;
+
+                GLuint texture = loadTextureWithTensorRenderFrameBuffer(currentInputTensorFrameBuffer);
+                int tile_width = (currentInputTensorFrameBuffer->texture_width * 60) / currentInputTensorFrameBuffer->width;
+                int tile_height = (currentInputTensorFrameBuffer->texture_height * 60) / currentInputTensorFrameBuffer->height;
+                if(texture) {
+                        glColor3f(1,1,1);
+                        glBindTexture(GL_TEXTURE_2D, texture);
+                        glBegin(GL_QUADS);
+                        glTexCoord2f(0, 0);
+                        glVertex2f(x_offset, SCREEN_HEIGHT - y_offset);
+                        glTexCoord2f(0, 1);
+                        glVertex2f(x_offset, SCREEN_HEIGHT - y_offset - tile_height);
+                        glTexCoord2f(1, 1);
+                        glVertex2f(x_offset + tile_width, SCREEN_HEIGHT - y_offset - tile_height);
+                        glTexCoord2f(1, 0);
+                        glVertex2f(x_offset + tile_width, SCREEN_HEIGHT - y_offset);
+                        glEnd();
+
+                        if((x_offset <= mouse_x) && (mouse_x <= x_offset + 60) && (y_offset <= mouse_y) && (mouse_y <= y_offset + 60)) {
+                                selectedTensorFrameBuffer = currentInputTensorFrameBuffer;
+                                mouse_x = mouse_y = 0;
+                        }
+                }
+                x_offset += 40;
+        }
+
+        // Draw all the neural network layers
         for(Layer* layer: layers) {
                 LayerGridFrameBuffer *grid = layer->gridRenderFrameBuffer;
                 x_offset += 50; // horizontal space between layers
@@ -188,7 +189,7 @@ void display(void)
 
                                 y_offset += 24;
                                 TensorRenderFrameBuffer* tensorFrameBuffer = grid->get(x, y);
-                                GLuint texture = LoadTextureWithTensorRenderFrameBuffer(tensorFrameBuffer);
+                                GLuint texture = loadTextureWithTensorRenderFrameBuffer(tensorFrameBuffer);
                                 int tile_width = (tensorFrameBuffer->texture_width * 40) / tensorFrameBuffer->width;
                                 int tile_height = (tensorFrameBuffer->texture_height * 40) / tensorFrameBuffer->height;
 
@@ -196,18 +197,18 @@ void display(void)
                                         glBindTexture(GL_TEXTURE_2D, texture);
                                         glBegin(GL_QUADS);
                                         glTexCoord2f(0, 0);
-                                        glVertex2f(x_offset, HEIGHT - y_offset);
+                                        glVertex2f(x_offset, SCREEN_HEIGHT - y_offset);
                                         glTexCoord2f(0, 1);
-                                        glVertex2f(x_offset, HEIGHT - y_offset - tile_height);
+                                        glVertex2f(x_offset, SCREEN_HEIGHT - y_offset - tile_height);
                                         glTexCoord2f(1, 1);
-                                        glVertex2f(x_offset + tile_width, HEIGHT - y_offset - tile_height);
+                                        glVertex2f(x_offset + tile_width, SCREEN_HEIGHT - y_offset - tile_height);
                                         glTexCoord2f(1, 0);
-                                        glVertex2f(x_offset + tile_width, HEIGHT - y_offset);
+                                        glVertex2f(x_offset + tile_width, SCREEN_HEIGHT - y_offset);
                                         glEnd();
 
                                         if((x_offset <= mouse_x) && (mouse_x <= x_offset + 40) && (y_offset <= mouse_y) && (mouse_y <= y_offset + 40)) {
-                                          selectedTensorFrameBuffer = tensorFrameBuffer;
-                                          mouse_x = mouse_y = 0;
+                                                selectedTensorFrameBuffer = tensorFrameBuffer;
+                                                mouse_x = mouse_y = 0;
                                         }
                                 }
 
@@ -218,18 +219,16 @@ void display(void)
         }
         glDisable(GL_TEXTURE_2D);
 
-
-        drawString(WIDTH - 45, 15, current_fps_buffer, GLUT_BITMAP_HELVETICA_10);
+        drawString(SCREEN_WIDTH - 45, 15, current_fps_buffer, GLUT_BITMAP_HELVETICA_10);
         snprintf(avg_error_percent_buffer, 30, "%4.5f Avg. error", avg_error_percent);
-        drawString(WIDTH - 220, HEIGHT - 30, avg_error_percent_buffer, GLUT_BITMAP_TIMES_ROMAN_24);
-        snprintf(press_space_buffer, 30, "Press space to pause/continue");
-        drawString(WIDTH - 220, HEIGHT - 10, press_space_buffer, GLUT_BITMAP_HELVETICA_12);
+        drawString(SCREEN_WIDTH - 260, SCREEN_HEIGHT - 30, avg_error_percent_buffer, GLUT_BITMAP_TIMES_ROMAN_24);
+        snprintf(press_space_buffer, 40, "Press space to pause/continue training");
+        drawString(SCREEN_WIDTH - 260, SCREEN_HEIGHT - 10, press_space_buffer, GLUT_BITMAP_HELVETICA_12);
         /*** END: 2D tensors ***/
 
-        /*** BEGIN: 3D tensor chart ***/
-        // Enable 3D mode
+        /*** BEGIN: 3D selected tensor chart ***/
         glLoadIdentity();
-        glOrtho(0.0, WIDTH, 0.0, HEIGHT, 0.0, 1000.0f);
+        glOrtho(0.0, SCREEN_WIDTH, 0.0, SCREEN_HEIGHT, 0.0, 1000.0f);
         glDepthFunc(GL_LESS);
         glDepthRange(0.0f, 1.0f);
 
@@ -268,73 +267,64 @@ void display(void)
 
                 glMatrixMode(GL_MODELVIEW);
 
-                glBegin (GL_QUADS);
-                for( int i = 0; i < selectedTensorFrameBuffer->width - 1; i++ ) {
-                        for( int j = 0; j < selectedTensorFrameBuffer->height; j++ ) {
+                glBegin(GL_QUADS);
+                int i, _i, j, _j;
+                int frameBufferWidth = max(selectedTensorFrameBuffer->width - 1, 1);
+                int frameBufferHeight = max(selectedTensorFrameBuffer->height - 1, 1);
+                for(i = 0; i < frameBufferWidth; _i = i++) {
+                        for(j = 0; j < frameBufferHeight; j++) {
+                                _i = (i == selectedTensorFrameBuffer->width - 1) ? i : i+1;
+                                _j = (j == selectedTensorFrameBuffer->height - 1) ? j : j+1;
+
                                 //top left
                                 glColor4ub(selectedTensorFrameBuffer->getRed(i, j), selectedTensorFrameBuffer->getGreen(i, j), selectedTensorFrameBuffer->getBlue(i, j), 255);
                                 glVertex3f (i*cell_width + axis_x_offset, ((selectedTensorFrameBuffer->getValue(i, j) * 50) / 255) + axis_y_offset, -j*cell_height);
                                 //bottom left
-                                glColor4ub(selectedTensorFrameBuffer->getRed(i, j+1), selectedTensorFrameBuffer->getGreen(i, j+1), selectedTensorFrameBuffer->getBlue(i, j+1), 255);
-                                glVertex3f (i*cell_width + axis_x_offset, ((selectedTensorFrameBuffer->getValue(i, j+1) * 50) / 255) + axis_y_offset, -(j+1)*cell_height);
+                                glColor4ub(selectedTensorFrameBuffer->getRed(i, _j), selectedTensorFrameBuffer->getGreen(i, _j), selectedTensorFrameBuffer->getBlue(i, _j), 255);
+                                glVertex3f (i*cell_width + axis_x_offset, ((selectedTensorFrameBuffer->getValue(i, _j) * 50) / 255) + axis_y_offset, -(j+1)*cell_height);
                                 //bottom right
-                                glColor4ub(selectedTensorFrameBuffer->getRed(i+1, j+1), selectedTensorFrameBuffer->getGreen(i+1, j+1), selectedTensorFrameBuffer->getBlue(i+1, j+1), 255);
-                                glVertex3f ((i+1)*cell_width + axis_x_offset, ((selectedTensorFrameBuffer->getValue(i+1, j+1) * 50) / 255) + axis_y_offset, -(j+1)*cell_height);
+                                glColor4ub(selectedTensorFrameBuffer->getRed(_i, _j), selectedTensorFrameBuffer->getGreen(_i, _j), selectedTensorFrameBuffer->getBlue(_i, _j), 255);
+                                glVertex3f ((i+1)*cell_width + axis_x_offset, ((selectedTensorFrameBuffer->getValue(_i, _j) * 50) / 255) + axis_y_offset, -(j+1)*cell_height);
                                 //top right
-                                glColor4ub(selectedTensorFrameBuffer->getRed(i+1, j), selectedTensorFrameBuffer->getGreen(i+1, j), selectedTensorFrameBuffer->getBlue(i+1, j), 255);
-                                glVertex3f ((i+1)*cell_width + axis_x_offset, ((selectedTensorFrameBuffer->getValue(i+1, j) * 50) / 255) + axis_y_offset, -(j)*cell_height);
-
+                                glColor4ub(selectedTensorFrameBuffer->getRed(_i, j), selectedTensorFrameBuffer->getGreen(_i, j), selectedTensorFrameBuffer->getBlue(_i, j), 255);
+                                glVertex3f ((i+1)*cell_width + axis_x_offset, ((selectedTensorFrameBuffer->getValue(_i, j) * 50) / 255) + axis_y_offset, -(j)*cell_height);
                         }
                 }
-                glEnd ();
+                glEnd();
 
                 selectedTensorFrameBuffer->is_consuming_frame_buffer = false;
                 selectedTensorFrameBuffer->consumer_mutex.unlock();
         }
-        /*** END: 3D chart ***/
+        /*** END: 3D selected tensor chart ***/
 
         glFlush();
         glutSwapBuffers();
 }
 
-vector<InputCase*> read_test_cases()
+vector<InputCase*> readInputDataset()
 {
         vector<InputCase*> cases;
 
-        producer_frame_buffer = (unsigned char *)malloc((28 * 28 * 3));
-        consumer_frame_buffer = (unsigned char *)malloc((28 * 28 * 3));
-
-        uint8_t* train_image = read_file( "train-images.idx3-ubyte" );
-        uint8_t* train_labels = read_file( "train-labels.idx1-ubyte" );
-        uint32_t case_count = byteswap_uint32( *(uint32_t*)(train_image + 4) );
+        uint8_t* train_image = readFile( "train-images.idx3-ubyte" );
+        uint8_t* train_labels = readFile( "train-labels.idx1-ubyte" );
+        uint32_t case_count = byteswapUint32( *(uint32_t*)(train_image + 4) );
 
         for(int i = 0; i < case_count; i++)
         {
-                NeuralNetwork::size_tensor input_size{28, 28, 1};
-                NeuralNetwork::size_tensor output_size{10, 1, 1};
+                NeuralNetwork::size_tensor input_size{INPUT_WIDTH, INPUT_HEIGHT, INPUT_DEPTH};
+                NeuralNetwork::size_tensor output_size{OUTPUT_WIDTH, OUTPUT_HEIGHT, OUTPUT_DEPTH};
 
                 InputCase *c = new InputCase(input_size, output_size);
 
-                uint8_t* img = train_image + 16 + i * (28 * 28);
+                uint8_t* img = train_image + 16 + i * (INPUT_WIDTH * INPUT_HEIGHT);
                 uint8_t* label = train_labels + 8 + i;
 
-                for ( int x = 0; x < 28; x++ )
-                        for ( int y = 0; y < 28; y++ ) {
-                                (*c->data)(x, y, 0) = img[x + y * 28] / 255.f;
-                                producer_frame_buffer[x * 3 + y * 28 * 3] = 0;
-                                producer_frame_buffer[x * 3 + y * 28 * 3 + 1] = img[x + y * 28]; // green byte
-                                producer_frame_buffer[x * 3 + y * 28 * 3 + 2] = 0;
+                for ( int x = 0; x < INPUT_WIDTH; x++ )
+                        for ( int y = 0; y < INPUT_HEIGHT; y++ ) {
+                                (*c->data)(x, y, 0) = img[x + y * INPUT_WIDTH] / 255.f;
                         }
 
-                if(!is_consuming_frame_buffer) {
-                        consumer_mutex.lock();
-                        unsigned char *tmp = producer_frame_buffer;
-                        producer_frame_buffer = consumer_frame_buffer;
-                        consumer_frame_buffer = tmp;
-                        consumer_mutex.unlock();
-                }
-
-                for ( int b = 0; b < 10; b++ ) {
+                for ( int b = 0; b < OUTPUT_WIDTH; b++ ) {
                         (*c->output)(b, 0, 0) = *label == b ? 1.0f : 0.0f;
                 }
 
@@ -348,20 +338,22 @@ vector<InputCase*> read_test_cases()
 
 static void keyboard(int key, int x, int y) {
         switch (key) {
-          case GLUT_KEY_LEFT:
-                  break;
-          case GLUT_KEY_RIGHT:
-                  break;
-          case GLUT_KEY_UP:
-                  break;
-          case GLUT_KEY_DOWN:
-                  break;
+        case GLUT_KEY_LEFT:
+                break;
+        case GLUT_KEY_RIGHT:
+                break;
+        case GLUT_KEY_UP:
+                break;
+        case GLUT_KEY_DOWN:
+                break;
+        case 32: // space bar
+                break;
         }
 }
 
 static void mouse(int button, int state, int x, int y) {
-  mouse_x = x;
-  mouse_y = y;
+        mouse_x = x;
+        mouse_y = y;
 }
 
 void idle(void)
@@ -371,7 +363,7 @@ void idle(void)
 
 void reshape(int w, int h)
 {
-        glViewport(0, 0, WIDTH, HEIGHT);
+        glViewport(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
         glMatrixMode(GL_PROJECTION);
         glLoadIdentity();
 }
@@ -414,27 +406,40 @@ float train(vector<Layer*> &layers, InputCase *input_case)//TensorFloat *data, T
 }
 
 static void* tensarThreadFunc(void* v) {
-        vector<InputCase*> cases = read_test_cases();
+        vector<InputCase*> cases = readInputDataset(); // MNIST dataset
+        currentInputTensorFrameBuffer = new TensorRenderFrameBuffer(INPUT_WIDTH, INPUT_HEIGHT); // frame buffer for rendering the current input tensor from MNIST dataset
 
+        /*** BEGIN: Simple Convolutional Neural Network topology model ***/
         ConvolutionalLayer *cnn_layer1 = new ConvolutionalLayer(1, 5, 8, cases[0]->data->size); // 28 * 28 * 1 -> 24 * 24 * 8
         ReLuLayer *relu_layer1 = new ReLuLayer(cnn_layer1->output->size); // 28 * 28 * 1 -> 24 * 24 * 8
         PoolLayer *pool_layer1 = new PoolLayer(2, 2, relu_layer1->output->size);
-/*
-        ConvolutionalLayer *cnn_layer2 = new ConvolutionalLayer(1, 3, 10, pool_layer1->output->size); // 28 * 28 * 1 -> 24 * 24 * 8
-        ReLuLayer *relu_layer2 = new ReLuLayer(cnn_layer2->output->size); // 28 * 28 * 1 -> 24 * 24 * 8
-        PoolLayer *pool_layer2 = new PoolLayer(2, 2, relu_layer2->output->size);
- */
-        FullyConnectedLayer *fc_layer = new FullyConnectedLayer(pool_layer1->output->size, {10, 1, 1});
+        FullyConnectedLayer *fc_layer = new FullyConnectedLayer(pool_layer1->output->size, {OUTPUT_WIDTH, OUTPUT_HEIGHT, OUTPUT_DEPTH});
 
         layers.push_back(cnn_layer1);
         layers.push_back(relu_layer1);
         layers.push_back(pool_layer1);
+        layers.push_back(fc_layer);
+        /*** END: Simple Convolutional Neural Network topology model ***/
+
+        /*** BEGIN: Yet another Convolutional Neural Network topology model ***/
 /*
+        ConvolutionalLayer *cnn_layer1 = new ConvolutionalLayer(1, 5, 8, cases[0]->data->size); // 28 * 28 * 1 -> 24 * 24 * 8
+        ReLuLayer *relu_layer1 = new ReLuLayer(cnn_layer1->output->size); // 28 * 28 * 1 -> 24 * 24 * 8
+        PoolLayer *pool_layer1 = new PoolLayer(2, 2, relu_layer1->output->size);
+        ConvolutionalLayer *cnn_layer2 = new ConvolutionalLayer(1, 3, 10, pool_layer1->output->size); // 28 * 28 * 1 -> 24 * 24 * 8
+        ReLuLayer *relu_layer2 = new ReLuLayer(cnn_layer2->output->size); // 28 * 28 * 1 -> 24 * 24 * 8
+        PoolLayer *pool_layer2 = new PoolLayer(2, 2, relu_layer2->output->size);
+        FullyConnectedLayer *fc_layer = new FullyConnectedLayer(pool_layer2->output->size, {OUTPUT_WIDTH, OUTPUT_HEIGHT, OUTPUT_DEPTH});
+
+        layers.push_back(cnn_layer1);
+        layers.push_back(relu_layer1);
+        layers.push_back(pool_layer1);
         layers.push_back(cnn_layer2);
         layers.push_back(relu_layer2);
         layers.push_back(pool_layer2);
- */
         layers.push_back(fc_layer);
+ */
+        /*** END: Yet another Convolutional Neural Network topology model ***/
 
         float amse = 0;
         int ic = 0;
@@ -446,6 +451,19 @@ static void* tensarThreadFunc(void* v) {
                 for(int i=0; i<cases.size(); i++)
                 {
                         InputCase *input_case = cases[i];
+
+                        // update the frame buffer with the current input values
+                        for(int x = 0; x < input_case->data->size.width; x++)
+                                for(int y = 0; y < input_case->data->size.height; y++)
+                                        for(int z = 0; z < input_case->data->size.depth; z++)
+                                        {
+                                                float value = input_case->data->get(x, y, z);
+                                                currentInputTensorFrameBuffer->set(x, y, (int)(value * 255));
+                                        }
+                        // render input case swapping the double buffers
+                        currentInputTensorFrameBuffer->swapBuffers();
+
+                        // train the layers with the current input case
                         float xerr = train(layers, input_case);
                         amse += xerr;
 
@@ -470,6 +488,7 @@ static void* tensarThreadFunc(void* v) {
                         }
                 }
         }
+        delete currentInputTensorFrameBuffer;
         return 0;
 }
 
@@ -480,7 +499,7 @@ int main(int argc, char *argv[]) {
 
         glutInit(&argc, argv);
         glutInitDisplayMode(GLUT_RGB);
-        glutInitWindowSize(WIDTH, HEIGHT);
+        glutInitWindowSize(SCREEN_WIDTH, SCREEN_HEIGHT);
         glutInitWindowPosition(0, 0);
         glutCreateWindow("Tensar");
         glutDisplayFunc(display);
@@ -488,9 +507,8 @@ int main(int argc, char *argv[]) {
         glutMouseFunc(mouse);
         glutSpecialFunc(keyboard);
         glutIdleFunc(idle);
-
         glClearColor(1.0, 1.0, 1.0, 1.0);
-        glEnable(GL_LINE_SMOOTH);
+        //glEnable(GL_LINE_SMOOTH);
 
         glutMainLoop();
 
