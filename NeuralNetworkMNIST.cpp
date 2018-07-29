@@ -1,7 +1,6 @@
 #include <fstream>
 #include <pthread.h>
 #include <vector>
-
 #include "src/common.cpp"
 #include "src/tensor.cpp"
 #include "src/tensor_float.cpp"
@@ -34,24 +33,23 @@
 #define SCREEN_HEIGHT 740
 
 using namespace std;
+using namespace NeuralNetwork;
 
-namespace NeuralNetwork {
-
-int mouse_x = 0;
-int mouse_y = 0;
+vector<Layer*> layers;
+bool paused = false;
 TensorRenderFrameBuffer* currentInputTensorFrameBuffer = NULL;
 TensorRenderFrameBuffer* selectedTensorFrameBuffer = NULL;
+int iteration = 0;
+int expected_label, predicted_label;
 int timebase_timestamp = 0;
 int frame_counter = 0;
-char current_fps_buffer[20];
 float avg_error_percent = 100.0f;
-char avg_error_percent_buffer[30];
-char press_space_buffer[40];
-vector<Layer*> layers;
-
-}
-
-using namespace NeuralNetwork;
+char current_fps_buffer_msg[20];
+char expected_output_buffer_msg[60];
+char avg_error_percent_buffer_msg[30];
+char press_space_buffer_msg[40];
+int mouse_x = 0;
+int mouse_y = 0;
 
 uint32_t byteswapUint32(uint32_t a)
 {
@@ -125,7 +123,7 @@ void display(void)
 
         if(glutGet(GLUT_ELAPSED_TIME) - timebase_timestamp > 1000) {
                 int current_timestamp = glutGet(GLUT_ELAPSED_TIME);
-                snprintf(current_fps_buffer, 20, "%4.1ffps", (frame_counter * 1000.0)/(current_timestamp - timebase_timestamp));
+                snprintf(current_fps_buffer_msg, 20, "%4.1ffps", (frame_counter * 1000.0)/(current_timestamp - timebase_timestamp));
                 timebase_timestamp = current_timestamp;
                 frame_counter = 0;
         }
@@ -219,11 +217,16 @@ void display(void)
         }
         glDisable(GL_TEXTURE_2D);
 
-        drawString(SCREEN_WIDTH - 45, 15, current_fps_buffer, GLUT_BITMAP_HELVETICA_10);
-        snprintf(avg_error_percent_buffer, 30, "%4.5f Avg. error", avg_error_percent);
-        drawString(SCREEN_WIDTH - 260, SCREEN_HEIGHT - 30, avg_error_percent_buffer, GLUT_BITMAP_TIMES_ROMAN_24);
-        snprintf(press_space_buffer, 40, "Press space to pause/continue training");
-        drawString(SCREEN_WIDTH - 260, SCREEN_HEIGHT - 10, press_space_buffer, GLUT_BITMAP_HELVETICA_12);
+        if(paused) {
+          drawString(20, SCREEN_HEIGHT - 100, (char*)"TRAINING PAUSED", GLUT_BITMAP_HELVETICA_18);
+        }
+        drawString(SCREEN_WIDTH - 45, 15, current_fps_buffer_msg, GLUT_BITMAP_HELVETICA_10);
+        snprintf(expected_output_buffer_msg, 60, "Input #%d - Expected: %d - Predicted: %d [ %s ]", iteration, expected_label, predicted_label, (expected_label == predicted_label) ? (char*)"SUCCESS" : (char*)"FAIL");
+        drawString(20, SCREEN_HEIGHT - 70, expected_output_buffer_msg, GLUT_BITMAP_9_BY_15);
+        snprintf(avg_error_percent_buffer_msg, 30, "%4.5f Avg. error", avg_error_percent);
+        drawString(20, SCREEN_HEIGHT - 45, avg_error_percent_buffer_msg, GLUT_BITMAP_9_BY_15);
+        snprintf(press_space_buffer_msg, 40, "Press space to pause/continue training");
+        drawString(20, SCREEN_HEIGHT - 20, press_space_buffer_msg, GLUT_BITMAP_8_BY_13);
         /*** END: 2D tensors ***/
 
         /*** BEGIN: 3D selected tensor chart ***/
@@ -232,14 +235,14 @@ void display(void)
         glDepthFunc(GL_LESS);
         glDepthRange(0.0f, 1.0f);
 
-        float axis_x_offset = 1000.0f;
-        float axis_y_offset = 200.0f;
+        float axis_x_offset = 900.0f;
+        float axis_y_offset = 250.0f;
         glRotatef(12.0f, -1.0f, 1.0f, 0.0f);
 
         glColor4ub(0, 0, 0, 255);
         glBegin(GL_LINE_STRIP);
         glVertex3f(0.0f + axis_x_offset, 0.0f + axis_y_offset, 0.0f);
-        glVertex3f(200.0f + axis_x_offset, 0.0f + axis_y_offset, 0.0f);
+        glVertex3f(300.0f + axis_x_offset, 0.0f + axis_y_offset, 0.0f);
         glEnd();
         glBegin(GL_LINE_STRIP);
         glVertex3f(0.0f + axis_x_offset, 0.0f + axis_y_offset, 0.0f);
@@ -247,26 +250,24 @@ void display(void)
         glEnd();
         glBegin(GL_LINE_STRIP);
         glVertex3f(0.0f + axis_x_offset, 0.0f + axis_y_offset, 0.0f);
-        glVertex3f(0.0f + axis_x_offset, 0.0f + axis_y_offset, -680.0f);
+        glVertex3f(0.0f + axis_x_offset, 0.0f + axis_y_offset, -980.0f);
         glEnd();
 
         glColor4ub(200, 55, 100, 255);
-        glRasterPos3f(210.0f + axis_x_offset, 0.0f + axis_y_offset, 0.0f);
+        glRasterPos3f(310.0f + axis_x_offset, 0.0f + axis_y_offset, 0.0f);
         glutBitmapCharacter(GLUT_BITMAP_HELVETICA_12, 'x');
         glRasterPos3f(0.0f + axis_x_offset, 110.0f + axis_y_offset, 0.0f);
         glutBitmapCharacter(GLUT_BITMAP_HELVETICA_12, 'y');
-        glRasterPos3f(0.0f + axis_x_offset, 0.0f + axis_y_offset, -750.0f);
+        glRasterPos3f(-5.0f + axis_x_offset, 15.0f + axis_y_offset, -840.0f);
         glutBitmapCharacter(GLUT_BITMAP_HELVETICA_12, 'z');
 
         if(selectedTensorFrameBuffer != NULL) {
                 selectedTensorFrameBuffer->consumer_mutex.lock();
                 selectedTensorFrameBuffer->is_consuming_frame_buffer = true;
 
-                float cell_width = 200.0f / selectedTensorFrameBuffer->width;
-                float cell_height = 600.0f / selectedTensorFrameBuffer->height;
-
+                float cell_width = 300.0f / selectedTensorFrameBuffer->width;
+                float cell_height = 900.0f / selectedTensorFrameBuffer->height;
                 glMatrixMode(GL_MODELVIEW);
-
                 glBegin(GL_QUADS);
                 int i, _i, j, _j;
                 int frameBufferWidth = max(selectedTensorFrameBuffer->width - 1, 1);
@@ -311,8 +312,8 @@ vector<InputCase*> readInputDataset()
 
         for(int i = 0; i < case_count; i++)
         {
-                NeuralNetwork::size_tensor input_size{INPUT_WIDTH, INPUT_HEIGHT, INPUT_DEPTH};
-                NeuralNetwork::size_tensor output_size{OUTPUT_WIDTH, OUTPUT_HEIGHT, OUTPUT_DEPTH};
+                size_tensor input_size{INPUT_WIDTH, INPUT_HEIGHT, INPUT_DEPTH};
+                size_tensor output_size{OUTPUT_WIDTH, OUTPUT_HEIGHT, OUTPUT_DEPTH};
 
                 InputCase *c = new InputCase(input_size, output_size);
 
@@ -347,6 +348,7 @@ static void keyboard(int key, int x, int y) {
         case GLUT_KEY_DOWN:
                 break;
         case 32: // space bar
+                paused = !paused;
                 break;
         }
 }
@@ -442,14 +444,21 @@ static void* tensarThreadFunc(void* v) {
         /*** END: Yet another Convolutional Neural Network topology model ***/
 
         float amse = 0;
-        int ic = 0;
+        float max_value = 0.0f;
+        TensorFloat* expected;
+        TensorFloat* output;
 
         cout << "Start training...\n";
-
         for(long ep = 0; ep < 100000;)
         {
                 for(int i=0; i<cases.size(); i++)
                 {
+                        while(1) {
+                          cout << "";
+                          if(!paused)
+                            break;
+                        }
+
                         InputCase *input_case = cases[i];
 
                         // update the frame buffer with the current input values
@@ -465,23 +474,40 @@ static void* tensarThreadFunc(void* v) {
 
                         // train the layers with the current input case
                         float xerr = train(layers, input_case);
-                        amse += xerr;
 
+                        // Calculate the average error of the training
+                        amse += xerr;
                         ep++;
-                        ic++;
-                        avg_error_percent = amse/ic;
+                        iteration++;
+                        avg_error_percent = amse/iteration;
+
+                        expected = input_case->output;
+                        max_value = 0.0f;
+                        for(int e = 0; e < 10; e++)
+                          if(max_value < (*expected)(e, 0, 0)) {
+                            max_value = (*expected)(e, 0, 0);
+                            expected_label = e;
+                          }
+
+                        output = layers.back()->output;
+                        max_value = 0.0f;
+                        for(int o = 0; o < 10; o++)
+                          if(max_value < (*output)(o, 0, 0)) {
+                            max_value = (*output)(o, 0, 0);
+                            predicted_label = o;
+                          }
 
                         if(ep % 1000 == 0) {
                                 cout << "case " << ep << " err=" << avg_error_percent << endl;
 
-                                TensorFloat* expected = input_case->output;
+                                expected = input_case->output;
                                 cout << "Expected:\n";
                                 for(int e = 0; e < 10; e++) {
                                         printf("[%i] %f\n", e, (*expected)(e, 0, 0)*100.0f);
                                 }
 
                                 cout << "Output:\n";
-                                TensorFloat* output = layers.back()->output;
+                                output = layers.back()->output;
                                 for(int o = 0; o < 10; o++) {
                                         printf("[%i] %f\n", o, (*output)(o, 0, 0)*100.0f);
                                 }
@@ -501,7 +527,7 @@ int main(int argc, char *argv[]) {
         glutInitDisplayMode(GLUT_RGB);
         glutInitWindowSize(SCREEN_WIDTH, SCREEN_HEIGHT);
         glutInitWindowPosition(0, 0);
-        glutCreateWindow("Tensar");
+        glutCreateWindow("Tensar | MNIST dataset");
         glutDisplayFunc(display);
         glutReshapeFunc(reshape);
         glutMouseFunc(mouse);
