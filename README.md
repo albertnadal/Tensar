@@ -1,4 +1,6 @@
-## Tensar CNN
+[![Build Status](https://api.travis-ci.org/albertnadal/Tensar.svg?branch=master)](https://travis-ci.org/albertnadal/Tensar)
+
+# Tensar CNN
 
 Tensar is an easy implementation written in C++11 to help you develop, understand and visualize simple Convolutional Neural Networks from scratch.
 
