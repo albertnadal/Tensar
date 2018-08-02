@@ -1,7 +1,7 @@
 language: cpp
 os: osx
 compiler:
-  - g++-4.9
+  - g++
 script:
   - mkdir out
   - SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
