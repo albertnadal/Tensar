@@ -42,6 +42,7 @@ No C++ macros are provided to completely disable the OpenGL code yet, so I hope 
 
 ## TODO
 
+- Save and load pretrained models via proto buffers.
 - Add a macro for a more complete and easy graphics decoupling.
 - Accelerate code execution via GPU by using third party libraries like CUDA or OpenCL.
 - Add more dataset samples for training.
