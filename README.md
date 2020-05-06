@@ -14,7 +14,7 @@ Screenshot:
 
 Video:
 
-[![Tensar](https://img.youtube.com/vi/mqp0HtEZdus/0.jpg)](https://www.youtube.com/watch?v=mqp0HtEZdus)
+[![Tensar](https://img.youtube.com/vi/oCElhUzadaA/0.jpg)](https://www.youtube.com/watch?v=oCElhUzadaA)
 
 ## Dependencies
 
