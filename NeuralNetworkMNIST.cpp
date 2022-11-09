@@ -1,6 +1,7 @@
 #include <fstream>
 #include <pthread.h>
 #include <vector>
+
 #include "src/common.cpp"
 #include "src/tensor.cpp"
 #include "src/tensor_float.cpp"
@@ -20,6 +21,10 @@
 #else
 #include <GL/glut.h>
 #endif
+
+#ifdef _WIN32
+#define GL_CLAMP_TO_EDGE 0x812F
+#endif	
 
 #define INPUT_WIDTH 28
 #define INPUT_HEIGHT 28
