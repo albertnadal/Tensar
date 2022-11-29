@@ -1,6 +1,6 @@
 [![Build Status](https://api.travis-ci.org/albertnadal/Tensar.svg?branch=master)](https://travis-ci.org/albertnadal/Tensar)
 
-# Tensar CNN
+# Tensar
 
 Tensar is an easy implementation written in C++11 to help you develop, understand and visualize simple Convolutional Neural Networks from scratch.
 
@@ -10,28 +10,54 @@ This application is intended to help you to better understand how [Convolutional
 
 Screenshot:
 
-[![Tensar](http://www.lafruitera.com/tensar_screenshot.png)](http://www.lafruitera.com/tensar_screenshot.png)
+![Tensar](resources/screenshot.png)
 
 Video:
 
 [![Tensar](https://img.youtube.com/vi/oCElhUzadaA/0.jpg)](https://www.youtube.com/watch?v=oCElhUzadaA)
 
-## Dependencies
+# Dependencies
 
 - OpenGL/Glut is used to display all the tensors as fast as possible in real time avoiding the use of CPU resources during the network training.
 - A C++11 compiler. I suggest g++ (Gnu C++ compiler) so this is the compiler used in the build script.
 
-## Building
+# Building
 
-On linux or macosx compile the source coude by running the provided build script and then launch the application following the instructions described bellow.
+## *nix:
 
+Method 1:
 ```sh
-$ cd Tensar
 $ ./build.sh
 $ ./NeuralNetwork
 ```
 
-## Decoupling graphics and neural network code
+Method 2:
+```
+cmake .
+ninja
+./tensar
+```
+
+## Windows-MSYS2:
+
+```
+cmake . -G "MinGW Makefiles"
+mingw32-make
+./tensar.exe
+```
+
+## CLI (*nix/Windows-MSYS2):
+
+```
+clang++ NeuralNetworkMNIST.cpp -o main -lfreeglut -lopengl32 -lglu32
+```
+or
+```
+g++ NeuralNetworkMNIST.cpp -o main -lfreeglut -lopengl32 -lglu32
+```
+
+
+# Decoupling graphics and neural network code
 
 Both graphics renderer and the neural network algorithms run on their own run loops. The application main loop is used for data visualization via OpenGL and a secondary run loop on a thread is used for the neural network.
 
@@ -40,7 +66,7 @@ The implementation of the neural network is decoupled from the data visualizatio
 No C++ macros are provided to completely disable the OpenGL code yet, so I hope I will add one in the next release. Meanwhile you can remove the graphic layer just by removing all the OpenGL code and build the application again.
 
 
-## TODO
+# TODO
 
 - Save and load pretrained models via proto buffers.
 - Add a macro for a more complete and easy graphics decoupling.
@@ -49,7 +75,7 @@ No C++ macros are provided to completely disable the OpenGL code yet, so I hope 
 - Add different neural network topologies.
 - Improve human interaction and data visualization.
 
-## License
+# License
  
 The MIT License (MIT)
 
